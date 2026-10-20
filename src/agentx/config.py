@@ -85,6 +85,14 @@ language = "en"
 
 [context]
 dir = ""
+
+[mcp]
+enabled = false
+binary = "droidmcp"
+tools = []
+root = ""
+idle_seconds = 120
+call_timeout_seconds = 15
 """
 
 
@@ -160,6 +168,16 @@ class ContextSettings:
 
 
 @dataclass
+class McpSettings:
+    enabled: bool = False
+    binary: str = "droidmcp"
+    tools: tuple[str, ...] = ()
+    root: str = ""
+    idle_seconds: int = 120
+    call_timeout_seconds: int = 15
+
+
+@dataclass
 class LimitSettings:
     request_timeout_seconds: int = 180
     quick_max_tokens: int = 256
@@ -191,6 +209,7 @@ class AppConfig:
     limits: LimitSettings = field(default_factory=LimitSettings)
     language: str = "en"
     context: ContextSettings = field(default_factory=ContextSettings)
+    mcp: McpSettings = field(default_factory=McpSettings)
     path: Path | None = None
 
 
@@ -333,6 +352,16 @@ def _apply(config: AppConfig, raw: dict) -> None:
     )
     config.scripts.index_url = _str(scripts, "index_url", config.scripts.index_url)
 
+    mcp = _table(raw, "mcp")
+    config.mcp.enabled = _bool(mcp, "enabled", config.mcp.enabled)
+    config.mcp.binary = _str(mcp, "binary", config.mcp.binary).strip() or "droidmcp"
+    config.mcp.tools = _str_tuple(mcp, "tools")
+    config.mcp.root = _str(mcp, "root", config.mcp.root).strip()
+    config.mcp.idle_seconds = _int(mcp, "idle_seconds", config.mcp.idle_seconds)
+    config.mcp.call_timeout_seconds = _int(
+        mcp, "call_timeout_seconds", config.mcp.call_timeout_seconds
+    )
+
     limits = _table(raw, "limits")
     for name in (
         "request_timeout_seconds",
@@ -395,6 +424,8 @@ def _validate(config: AppConfig) -> None:
             "Unknown key scope. Use local, all, orchestrator, or main."
         )
     config.routing.remote_scope = scope
+    if any(is_command_tool(name) for name in config.mcp.tools):
+        raise AgentXError("Command tools are off.")
 
 
 def _table(raw: dict, name: str) -> dict:
@@ -413,6 +444,32 @@ def _str(table: dict, key: str, default: str) -> str:
     if not isinstance(value, str):
         raise AgentXError(f"The config value {key} must be text.")
     return value
+
+
+MCP_COMMAND_WORDS = ("shell", "exec", "adb", "command", "terminal")
+
+
+def is_command_tool(name: str) -> bool:
+    folded = name.casefold()
+    return any(word in folded for word in MCP_COMMAND_WORDS)
+
+
+def _bool(table: dict, key: str, default: bool) -> bool:
+    if key not in table:
+        return default
+    value = table[key]
+    if not isinstance(value, bool):
+        raise AgentXError(f"The config value {key} must be true or false.")
+    return value
+
+
+def _str_tuple(table: dict, key: str) -> tuple[str, ...]:
+    if key not in table:
+        return ()
+    value = table[key]
+    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+        raise AgentXError(f"The config value {key} must be a list of text.")
+    return tuple(item.strip() for item in value)
 
 
 def _int(table: dict, key: str, default: int) -> int:

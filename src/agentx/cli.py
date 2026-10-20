@@ -39,6 +39,7 @@ Usage:
   agentx "task"          run one task and exit
   agentx init            write a config file with no secrets
   agentx doctor          check the config file
+  agentx mcp tools       list tools from an optional DroidMCP binary
   agentx key PROVIDER KEY save a provider key in the config
   agentx script list     list installed automation scripts
   agentx script add FILE copy a Python script into the script directory
@@ -104,6 +105,13 @@ def main(argv: list[str] | None = None) -> int:
             print("Use agentx doctor.", file=sys.stderr)
             return 1
         return doctor_command()
+    if args and args[0] == "mcp":
+        try:
+            config = load_config()
+        except AgentXError as exc:
+            _report(exc)
+            return 1
+        return mcp_command(config, args[1:])
     if args and args[0] == "key":
         try:
             config = load_config()
@@ -295,6 +303,28 @@ def apply_key_command(argument: str, config: AppConfig) -> str:
     if failed:
         return failed
     return f"Saved the {provider} key."
+
+
+def mcp_command(config: AppConfig, args: list[str]) -> int:
+    if args != ["tools"]:
+        print("Use agentx mcp tools.", file=sys.stderr)
+        return 1
+    from agentx.mcp.client import list_tools
+
+    governor = Governor(config.governor)
+    try:
+        tools = list_tools(config.mcp, governor)
+    except AgentXError as exc:
+        _report(exc)
+        return 1
+    if not tools:
+        print("DroidMCP listed no tools.")
+        return 0
+    allowed = set(config.mcp.tools)
+    for tool in tools:
+        mark = "allowed" if tool.name in allowed else "off"
+        print(f"{tool.name}: {mark}")
+    return 0
 
 
 def key_command(config: AppConfig, args: list[str]) -> int:

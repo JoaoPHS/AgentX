@@ -1,4 +1,5 @@
 import os
+import threading
 
 from agentx.automation.catalog import load_catalog
 from agentx.config import AppConfig, init_config, load_config
@@ -44,6 +45,8 @@ class _Router:
         self.plan = plan
         self.local = self
         self.remote = self
+        self.governor = self
+        self.lock = threading.Lock()
         self.seen = []
 
     def possible(self):

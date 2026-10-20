@@ -20,6 +20,7 @@ from agentx.automation.runner import run_script
 from agentx.config import answer_instruction
 from agentx.context import attach_folder_context, folder_context_for
 from agentx.errors import AgentXError
+from agentx.mcp.client import McpSession
 from agentx.tools.fetch import download
 
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
@@ -61,6 +62,7 @@ class Step:
     brief: str = ""
     url: str = ""
     script: str = ""
+    tool: str = ""
 
 
 class Orchestrator:
@@ -86,9 +88,8 @@ class Orchestrator:
         installed = load_catalog(scripts_dir(self.config))
         language = self.config.language
         turn_context = folder_context_for(message, self.config, scripts=installed)
-        analysis = (
-            f"{ANALYSIS_SYSTEM}\n{answer_instruction(language)}\n{format_catalog(installed)}"
-        )
+        mcp_tools = self.config.mcp.tools if self.config.mcp.enabled else ()
+        analysis = _analysis_prompt(installed, language, mcp_tools)
 
         def analyze(text: str) -> str:
             return self.router.complete(
@@ -111,6 +112,7 @@ class Orchestrator:
             analyze=analyze,
             max_delegations=self.config.orchestrator.max_delegations,
             scripts=installed,
+            mcp_tools=mcp_tools,
         )
         solo = len(steps) == 1
         shared_history = history if solo else None
@@ -118,7 +120,10 @@ class Orchestrator:
         def fetch(url: str):
             return download(url, settings=self.config.fetch)
 
+        mcp_session = McpSession(self.config.mcp, self.router.governor)
+
         def run_summary(url: str, token) -> str:
+            mcp_session.close()
             return summarize_url(
                 url,
                 router=self.router,
@@ -130,6 +135,7 @@ class Orchestrator:
             )
 
         def run_quick(brief: str, token) -> str:
+            mcp_session.close()
             return quick_answer(
                 brief,
                 router=self.router,
@@ -141,6 +147,7 @@ class Orchestrator:
             )
 
         def run_engineer(brief: str, prior: str, token) -> str:
+            mcp_session.close()
             return run_main(
                 brief,
                 router=self.router,
@@ -156,6 +163,12 @@ class Orchestrator:
                 context=turn_context,
             )
 
+        def launch_mcp(tool: str) -> str:
+            try:
+                return mcp_session.call(tool)
+            except AgentXError as exc:
+                return str(exc)
+
         def launch_script(script_id: str, task: str) -> str:
             return run_script(
                 script_id,
@@ -166,19 +179,23 @@ class Orchestrator:
             )
 
         blocked = None if local_ready else self.router.local.possible()
-        return execute_plan(
-            steps,
-            message,
-            scope=scope,
-            worker_ready=local_ready,
-            blocked_reason=blocked,
-            summarize=run_summary,
-            quick=run_quick,
-            main=run_engineer,
-            run_script=launch_script,
-            on_token=on_token,
-            status=status,
-        )
+        try:
+            return execute_plan(
+                steps,
+                message,
+                scope=scope,
+                worker_ready=local_ready,
+                blocked_reason=blocked,
+                summarize=run_summary,
+                quick=run_quick,
+                main=run_engineer,
+                run_script=launch_script,
+                mcp=launch_mcp,
+                on_token=on_token,
+                status=status,
+            )
+        finally:
+            mcp_session.close()
 
     def _timeout(self) -> float:
         remaining = self._deadline - time.monotonic()
@@ -197,6 +214,7 @@ def build_plan(
     analyze,
     max_delegations: int = 3,
     scripts=(),
+    mcp_tools=(),
 ) -> tuple[list[Step], bool]:
     if force_main:
         return [Step("main", brief=message.strip())], False
@@ -206,9 +224,11 @@ def build_plan(
         if direct is not None:
             return direct, False
     if can_analyze(scope, local_ready, remote_ready):
-        parsed = parse_delegation(analyze(message), max_delegations=max_delegations)
+        parsed = parse_delegation(
+            analyze(message), max_delegations=max_delegations, mcp_tools=mcp_tools
+        )
         if cautious and parsed:
-            parsed = [step for step in parsed if step.kind != "run_script"]
+            parsed = [step for step in parsed if step.kind not in {"run_script", "mcp"}]
         if parsed:
             return parsed, True
         return _after_rules(
@@ -296,7 +316,9 @@ def fallback_plan(message: str, *, max_delegations: int = 3, scripts=()) -> list
     return steps[:max_delegations]
 
 
-def parse_delegation(text: str, *, max_delegations: int = 3) -> list[Step] | None:
+def parse_delegation(
+    text: str, *, max_delegations: int = 3, mcp_tools=()
+) -> list[Step] | None:
     lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
     if not lines or len(lines) > max_delegations:
         return None
@@ -317,6 +339,12 @@ def parse_delegation(text: str, *, max_delegations: int = 3) -> list[Step] | Non
             if not is_script_id(script_id):
                 return None
             steps.append(Step("run_script", script=script_id))
+            continue
+        if line.startswith("sub mcp "):
+            tool = line[len("sub mcp ") :].strip().split()[0]
+            if tool not in mcp_tools:
+                return None
+            steps.append(Step("mcp", tool=tool))
             continue
         if line == "main" or line.startswith("main "):
             brief = line[len("main") :].strip()
@@ -342,15 +370,20 @@ def execute_plan(
     quick,
     main,
     run_script=None,
+    mcp=None,
     on_token=None,
     status=None,
 ) -> str:
-    needs_model = any(step.kind not in {"run_script", "refuse"} for step in steps)
+    needs_model = any(step.kind not in {"run_script", "refuse", "mcp"} for step in steps)
     if scope == "orchestrator" and not worker_ready and needs_model:
         return blocked_reason or "The local model is not available to run the task."
-    script_only = bool(steps) and all(step.kind == "run_script" for step in steps)
-    if scope == "main" and not worker_ready and not script_only and any(step.kind != "main" for step in steps):
-        steps = [Step("main", brief=message.strip())]
+    needs_local_routine = any(step.kind in {"summarize_url", "quick_answer"} for step in steps)
+    if scope == "main" and not worker_ready:
+        kept = [step for step in steps if step.kind not in {"summarize_url", "quick_answer"}]
+        if kept:
+            steps = kept
+        elif needs_local_routine:
+            steps = [Step("main", brief=message.strip())]
     collected: list[str] = []
     result = ""
     for index, step in enumerate(steps):
@@ -375,10 +408,30 @@ def execute_plan(
             else:
                 result = run_script(step.script, step.brief or message.strip())
             collected.append(result)
+        elif step.kind == "mcp":
+            if not last and status:
+                status(f"Calling {step.tool}.")
+            if mcp is None:
+                result = "DroidMCP is not available."
+            else:
+                result = mcp(step.tool)
+            collected.append(result)
         else:
             prior = _clip("\n\n".join(collected))
             result = main(step.brief or message.strip(), prior, token)
     return result
+
+
+def _analysis_prompt(scripts, language: str, mcp_tools) -> str:
+    catalog = format_catalog(scripts)
+    prompt = f"{ANALYSIS_SYSTEM}\n{answer_instruction(language)}\n{catalog}"
+    if mcp_tools:
+        names = ", ".join(mcp_tools)
+        prompt += (
+            "\nsub mcp TOOL when a listed MCP tool does that part. "
+            f"TOOL is one of: {names}."
+        )
+    return prompt
 
 
 def extract_urls(message: str) -> list[str]:

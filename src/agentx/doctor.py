@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tomllib
 from pathlib import Path
 
 from agentx.config import (
     LOCAL_PROVIDERS,
     PROVIDERS,
+    is_command_tool,
     default_config_path,
     format_toml_parse_error,
     normalize_scope,
@@ -56,6 +58,7 @@ def run_doctor(path: Path | None = None) -> tuple[int, str]:
         return 1, "\n".join(lines)
 
     lines.append("TOML: OK")
+    failed = _mcp_lines(raw, lines)
 
     routing, routing_error = _section(raw, "routing")
     local, local_error = _section(raw, "local")
@@ -150,6 +153,26 @@ def _toml_fail_detail(exc: tomllib.TOMLDecodeError, text: str) -> str:
         return f"line {line}"
     message = format_toml_parse_error(exc, text)
     return message.replace("The config file is not valid TOML", "parse error").strip(" .")
+
+
+def _mcp_lines(raw: dict, lines: list[str]) -> bool:
+    mcp, error = _section(raw, "mcp")
+    if error:
+        lines.append(f"mcp: FAIL ({error})")
+        return True
+    if not mcp or mcp.get("enabled") is not True:
+        lines.append("mcp: OK (off)")
+        return False
+    binary = mcp.get("binary", "droidmcp")
+    if not isinstance(binary, str) or shutil.which(binary) is None:
+        lines.append("mcp: WARN (binary not on PATH)")
+    else:
+        lines.append("mcp: OK")
+    tools = mcp.get("tools", [])
+    if isinstance(tools, list) and any(is_command_tool(str(name)) for name in tools):
+        lines.append("mcp tools: FAIL (command tools are off)")
+        return True
+    return False
 
 
 def _section(raw: dict, name: str) -> tuple[dict, str | None]:

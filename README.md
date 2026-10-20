@@ -24,6 +24,7 @@ agentx "show a toast that the backup finished"
 - A local model is optional. Use `llama-server` with a GGUF file, or Ollama on `127.0.0.1:11434`.
 - A remote key is optional: OpenRouter, Anthropic, or OpenAI. Scope `all` does not need a local file.
 - JavaScript pages need the optional extra: `pip install 'agentx[browser]'`. AgentX does not download a browser.
+- DroidMCP is optional and stays a separate project. AgentX does not vendor it and does not listen as an MCP server. With the client off, tasks still use scripts, local models, and remote APIs. No combined RAM or latency numbers are published yet.
 
 ## Changes
 
@@ -40,6 +41,7 @@ The command is `agentx`. The old `multiagentx` command is gone. `agentx init` wr
 - **Ollama.** `[local] provider = "ollama"` talks to a local Ollama server on loopback instead of starting llama-server. Set `local.model`, or run `/model ollama qwen2.5:1.5b`. AgentX does not download or pull the model. llama-server remains the default.
 - **Remote token cap.** Each of `[openrouter]`, `[anthropic]`, and `[openai]` has an editable `max_tokens` (default 1024). Long remote replies use that cap. Orchestrator analysis stays at 80 tokens and `quick_answer` keeps its small cap. If a stream stops because it hit the limit (`finish_reason=length` or Anthropic `stop_reason=max_tokens`), the reply ends with `The reply reached the token limit.` AgentX does not spend a second paid call to continue.
 - **Config doctor.** `agentx doctor` checks the same config file (`MULTIAGENTX_CONFIG` or `~/.config/agentx/config.toml`). A missing file or broken TOML fails with a line number. It never prints keys, never starts llama-server, and never calls a remote API.
+- **Optional MCP client.** AgentX can speak stdio MCP to one external DroidMCP binary. The projects stay separate. There is no HTTP listener and no MCP server inside AgentX. The process starts only when a task asks for an allowed tool, stays up for that task, and closes when the reply is done. `agentx mcp tools` lists names and exits. Only names in `mcp.tools` can be called. Command names are refused. An empty list calls nothing. A missing binary does not stop the rest of the task. Combined RAM and latency have not been measured.
 
 ```toml
 [local]
@@ -201,13 +203,13 @@ agentx script install https://gist.github.com/owner/gistid
 
 `script install NAME` reads a community index and can save that one Python file. The default index is the script list in this repository. A public gist URL, or `gist:ID`, offers the Python file from that gist. If the gist has several Python files, add the file name. Before anything is written, AgentX prints the source URL, the SHA-256, and a reminder that installing does not mean the script is safe. Confirm with `y` at a terminal, or pass `--yes`. Without one of those, the file is not saved. Install does not run the script. Downloads stay on HTTPS, reject private addresses, and accept only GitHub hosts plus the host of your index. Set `scripts.index_url` when you want a different community index.
 
-A script needs a docstring with `keywords`, `patterns`, or both. The file name is the id the orchestrator uses. A pattern is a phrase or a regular expression. Words in a phrase may have a few words between them, so `manda aviso` matches `manda um aviso` and `me notifica` matches `me notifica de que o backup acabou`. That match does not call a model.
+A script needs a docstring with `keywords`, `patterns`, or both. The file name is the id the orchestrator uses. A pattern is a phrase or a regular expression. Words in a phrase may have a few words between them, so `send a notice` matches `send a short notice` and `notify me` matches `notify me that the backup finished`. That match does not call a model.
 
 ```python
 """Save a note on the phone.
 
 keywords: note, reminder
-patterns: anota isso, save a note, lembra de
+patterns: write this down, save a note, remind me
 """
 ```
 
@@ -227,13 +229,13 @@ If nothing matches, the task runs as usual and no excerpt is added. AgentX does 
 
 At most 12 files are included. Each file contributes at most 8 KB. The whole excerpt stays within 6000 characters. Binary files are skipped, as are secrets such as `.env`, key files, and credentials. Python and other text files are kept.
 
-`analyze` and `analyse` ask the model to read that folder. They do not run the script. The Portuguese spelling of analyze, without an accent, is treated the same way.
+`analyze` and `analyse` ask the model to read that folder. They do not run the script.
 
 ## How a task is split
 
 The orchestrator does not answer you. It splits the task so a larger model only sees what a routine cannot finish.
 
-1. If the whole message is already a routine, no model is spent on routing. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, rewrite, and a short "what is" (including `o que é`) go to `quick_answer`. A request that clearly names one installed script goes to `run_script`. A condition or a refusal, such as `but`, `if`, `não`, or `mas`, does not run a script. On scope `all` or `main`, that ambiguous request is not sent to the remote key by a weak rule.
+1. If the whole message is already a routine, no model is spent on routing. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, rewrite, and a short "what is" go to `quick_answer`. A request that clearly names one installed script goes to `run_script`. A condition or a refusal, such as `but`, `if`, `not`, or `don't`, does not run a script. On scope `all` or `main`, that ambiguous request is not sent to the remote key by a weak rule.
 2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Routines run first. The main agent, if needed, is last and receives the routine output instead of redoing the fetch or the summary.
 3. With scope `orchestrator` or `all`, that analysis uses your remote key. With `local` or `main`, it uses the local model. If the orchestrator has no model, keyword rules choose the path. Another key is not spent just to decide.
 
