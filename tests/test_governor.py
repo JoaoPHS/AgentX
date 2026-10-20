@@ -90,7 +90,74 @@ def test_parse_battery_and_missing_command():
     assert read_battery(lambda _command: None) is None
 
 
-def test_governor_reads_meminfo_file(tmp_path):
+def test_hot_cpu_pauses_and_warm_cpu_uses_one_thread(tmp_path):
+    from agentx.resources.governor import read_cpu_temperature
+
+    cool = decide_local(
+        "MemAvailable: 900000 kB\n",
+        cpu_count=8,
+        battery=None,
+        temperature_c=45,
+        min_mem_mb=700,
+        max_threads=2,
+        low_battery_percent=20,
+        low_battery_context=1024,
+        default_context=2048,
+    )
+    assert cool.threads == 2
+    assert cool.reason is None
+    warm = decide_local(
+        "MemAvailable: 900000 kB\n",
+        cpu_count=8,
+        battery=None,
+        temperature_c=70,
+        min_mem_mb=700,
+        max_threads=2,
+        low_battery_percent=20,
+        low_battery_context=1024,
+        default_context=2048,
+    )
+    assert warm.threads == 1
+    assert warm.context == 1024
+    assert warm.reason is None
+    hot = decide_local(
+        "MemAvailable: 900000 kB\n",
+        cpu_count=8,
+        battery=None,
+        temperature_c=85,
+        min_mem_mb=700,
+        max_threads=2,
+        low_battery_percent=20,
+        low_battery_context=1024,
+        default_context=2048,
+    )
+    assert hot.reason
+    assert "hot" in hot.reason
+
+    root = tmp_path / "thermal"
+    cpu = root / "thermal_zone0"
+    battery = root / "thermal_zone1"
+    cpu.mkdir(parents=True)
+    battery.mkdir()
+    (cpu / "type").write_text("cpu-0-0-usr\n", encoding="utf-8")
+    (cpu / "temp").write_text("75000\n", encoding="utf-8")
+    (battery / "type").write_text("battery\n", encoding="utf-8")
+    (battery / "temp").write_text("90000\n", encoding="utf-8")
+    assert read_cpu_temperature(str(root)) == 75
+    assert read_cpu_temperature(str(tmp_path / "missing")) is None
+
+    path = tmp_path / "meminfo"
+    path.write_text("MemAvailable: 900000 kB\n", encoding="utf-8")
+    governor = Governor(
+        GovernorSettings(),
+        meminfo_path=str(path),
+        thermal_root=str(root),
+        cpu_count=8,
+        battery_runner=lambda _command: None,
+    )
+    decision = governor.assess(default_context=2048)
+    assert decision.threads == 1
+    assert decision.reason is None
     path = tmp_path / "meminfo"
     path.write_text("MemAvailable: 100000 kB\n", encoding="utf-8")
     governor = Governor(

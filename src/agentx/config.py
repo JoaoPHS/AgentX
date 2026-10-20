@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import tomllib
 from dataclasses import dataclass, field
@@ -54,6 +55,8 @@ min_mem_mb = 700
 max_threads = 2
 low_battery_percent = 20
 low_battery_context = 1024
+warm_celsius = 70
+hot_celsius = 85
 
 [fetch]
 max_bytes = 2097152
@@ -66,6 +69,13 @@ max_delegations = 3
 [scripts]
 dir = ""
 timeout_seconds = 30
+index_url = ""
+
+[preferences]
+language = "en"
+
+[context]
+dir = ""
 """
 
 
@@ -105,6 +115,8 @@ class GovernorSettings:
     max_threads: int = 2
     low_battery_percent: int = 20
     low_battery_context: int = 1024
+    warm_celsius: int = 70
+    hot_celsius: int = 85
 
 
 @dataclass
@@ -125,6 +137,12 @@ class ScriptSettings:
     dir: str = ""
     timeout_seconds: int = 30
     max_output_chars: int = 8000
+    index_url: str = ""
+
+
+@dataclass
+class ContextSettings:
+    dir: str = ""
 
 
 @dataclass
@@ -157,6 +175,8 @@ class AppConfig:
     orchestrator: OrchestratorSettings = field(default_factory=OrchestratorSettings)
     scripts: ScriptSettings = field(default_factory=ScriptSettings)
     limits: LimitSettings = field(default_factory=LimitSettings)
+    language: str = "en"
+    context: ContextSettings = field(default_factory=ContextSettings)
     path: Path | None = None
 
 
@@ -170,7 +190,7 @@ def default_config_path() -> Path:
 def init_config(path: Path | None = None) -> Path:
     destination = path or default_config_path()
     if destination.exists():
-        raise MultiAgentXError("The config file already exists.")
+        return destination
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
@@ -180,7 +200,7 @@ def init_config(path: Path | None = None) -> Path:
 
 def load_config(path: Path | None = None) -> AppConfig:
     destination = path if path is not None else default_config_path()
-    config = AppConfig(path=destination if destination.exists() else None)
+    config = AppConfig(path=destination)
     if destination.exists():
         _warn_permissions(destination)
         try:
@@ -245,6 +265,12 @@ def _apply(config: AppConfig, raw: dict) -> None:
     config.governor.low_battery_context = _int(
         governor, "low_battery_context", config.governor.low_battery_context
     )
+    config.governor.warm_celsius = _int(
+        governor, "warm_celsius", config.governor.warm_celsius
+    )
+    config.governor.hot_celsius = _int(
+        governor, "hot_celsius", config.governor.hot_celsius
+    )
 
     fetch = _table(raw, "fetch")
     config.fetch.max_bytes = _int(fetch, "max_bytes", config.fetch.max_bytes)
@@ -263,6 +289,19 @@ def _apply(config: AppConfig, raw: dict) -> None:
         orchestrator, "max_delegations", config.orchestrator.max_delegations
     )
 
+    preferences = _table(raw, "preferences")
+    raw_language = _str(preferences, "language", config.language).strip()
+    if not raw_language:
+        config.language = "en"
+    else:
+        chosen = normalize_language(raw_language)
+        if chosen is None:
+            raise MultiAgentXError("Unknown language. Use en or pt-BR.")
+        config.language = chosen
+
+    context = _table(raw, "context")
+    config.context.dir = _str(context, "dir", config.context.dir).strip()
+
     scripts = _table(raw, "scripts")
     config.scripts.dir = _str(scripts, "dir", config.scripts.dir)
     config.scripts.timeout_seconds = _int(
@@ -271,6 +310,7 @@ def _apply(config: AppConfig, raw: dict) -> None:
     config.scripts.max_output_chars = _int(
         scripts, "max_output_chars", config.scripts.max_output_chars
     )
+    config.scripts.index_url = _str(scripts, "index_url", config.scripts.index_url)
 
     limits = _table(raw, "limits")
     for name in (
@@ -349,3 +389,125 @@ def _int(table: dict, key: str, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise MultiAgentXError(f"The config value {key} must be an integer.")
     return value
+
+
+def normalize_language(value: str) -> str | None:
+    token = value.strip().casefold().replace("-", "_")
+    if token == "en":
+        return "en"
+    if token in {"pt", "pt_br"}:
+        return "pt-BR"
+    return None
+
+
+def answer_instruction(language: str) -> str:
+    if language == "pt-BR":
+        return "Answer in Brazilian Portuguese."
+    return "Answer in English."
+
+
+def save_config_values(config: AppConfig, sections: dict[str, dict[str, str]]) -> None:
+    """Update selected TOML keys. Environment variables still override keys afterwards."""
+    if config.path is not None:
+        try:
+            current = config.path.read_text(encoding="utf-8") if config.path.is_file() else TEMPLATE
+            _write_private(config.path, _patch_toml(current, sections))
+        except OSError as exc:
+            raise MultiAgentXError("Could not write the config file.") from exc
+    routing = sections.get("routing", {})
+    if "remote_scope" in routing:
+        config.routing.remote_scope = routing["remote_scope"]
+    if "remote_provider" in routing:
+        config.routing.remote_provider = routing["remote_provider"]
+    for name in PROVIDERS:
+        values = sections.get(name)
+        if not values:
+            continue
+        settings = provider_settings(config, name)
+        if "model" in values:
+            settings.model = values["model"]
+        if "api_key" in values:
+            settings.api_key = values["api_key"]
+    language = sections.get("preferences", {}).get("language")
+    if language is not None:
+        config.language = language
+    context_dir = sections.get("context", {}).get("dir")
+    if context_dir is not None:
+        config.context.dir = context_dir
+    if config.path is not None:
+        _apply_env(config)
+
+
+def _write_private(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    fd = os.open(temporary, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
+    if os.name == "posix":
+        os.chmod(path, 0o600)
+
+
+def _patch_toml(text: str, sections: dict[str, dict[str, str]]) -> str:
+    pending = {name: dict(values) for name, values in sections.items() if values}
+    current: str | None = None
+    output: list[str] = []
+
+    def flush() -> None:
+        if current is None or current not in pending:
+            return
+        for key, value in pending.pop(current).items():
+            output.append(f"{key} = {_toml_string(value)}")
+
+    for line in text.splitlines():
+        header = re.fullmatch(r"\s*\[([A-Za-z0-9_-]+)\]\s*", line)
+        if header:
+            flush()
+            current = header.group(1)
+            output.append(line)
+            continue
+        if current in pending and not line.lstrip().startswith("#"):
+            matched = re.match(r"^(\s*)([A-Za-z0-9_]+)\s*=", line)
+            if matched:
+                key = matched.group(2)
+                if key in pending[current]:
+                    value = pending[current].pop(key)
+                    output.append(f"{matched.group(1)}{key} = {_toml_string(value)}")
+                    if not pending[current]:
+                        pending.pop(current, None)
+                    continue
+        output.append(line)
+    flush()
+    for name, values in list(pending.items()):
+        if not values:
+            continue
+        if output and output[-1] != "":
+            output.append("")
+        output.append(f"[{name}]")
+        for key, value in values.items():
+            output.append(f"{key} = {_toml_string(value)}")
+    rendered = "\n".join(output)
+    if not rendered.endswith("\n"):
+        rendered += "\n"
+    return rendered
+
+
+def _toml_string(value: str) -> str:
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\b", "\\b")
+        .replace("\t", "\\t")
+        .replace("\n", "\\n")
+        .replace("\f", "\\f")
+        .replace("\r", "\\r")
+    )
+    return f'"{escaped}"'

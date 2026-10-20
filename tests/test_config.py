@@ -68,6 +68,7 @@ def test_openai_env_key(tmp_path, monkeypatch):
 def test_missing_file_uses_defaults(tmp_path):
     config = load_config(tmp_path / "missing.toml")
     assert config.routing.remote_scope == "local"
+    assert config.language == "en"
     assert config.governor.min_mem_mb == 700
     assert config.orchestrator.max_delegations == 3
 
@@ -81,8 +82,23 @@ def test_init_writes_template_without_secrets(tmp_path):
     assert SECRET not in text
     if os.name == "posix":
         assert created.stat().st_mode & 0o777 == 0o600
-    with pytest.raises(MultiAgentXError):
-        init_config(path)
+    scripts = created.parent / "scripts"
+    scripts.mkdir()
+    marker = scripts / "backup.py"
+    marker.write_text('print("keep")\n', encoding="utf-8")
+    created.write_text(
+        created.read_text(encoding="utf-8").replace(
+            'remote_scope = "local"',
+            'remote_scope = "main"',
+        ),
+        encoding="utf-8",
+    )
+    again = init_config(path)
+    assert again == created
+    kept = created.read_text(encoding="utf-8")
+    assert 'remote_scope = "main"' in kept
+    assert "api_key =" not in kept
+    assert marker.read_text(encoding="utf-8") == 'print("keep")\n'
 
 
 def test_env_config_path(tmp_path, monkeypatch):

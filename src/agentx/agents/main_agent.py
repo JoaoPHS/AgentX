@@ -6,6 +6,8 @@ import json
 import re
 
 from agentx.agents.subagents import summarize_url
+from agentx.config import answer_instruction
+from agentx.context import attach_folder_context
 from agentx.errors import MultiAgentXError
 from agentx.tools.fetch import excerpt
 
@@ -61,12 +63,15 @@ def run_main(
     on_token=None,
     run_script=None,
     scripts=(),
+    language: str = "en",
+    context: str = "",
 ) -> str:
     reason = router.block_reason("main")
     if reason:
         return reason
-    user = brief if not prior else f"{brief}\n\nMaterial already gathered:\n{prior}"
-    messages: list[dict] = [{"role": "system", "content": _system_prompt(scripts)}]
+    shown = attach_folder_context(brief, context)
+    user = shown if not prior else f"{shown}\n\nMaterial already gathered:\n{prior}"
+    messages: list[dict] = [{"role": "system", "content": _system_prompt(scripts, language)}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user})
     used = 0
@@ -100,21 +105,34 @@ def run_main(
             limits=limits,
             timeout=timeout,
             run_script=run_script,
+            language=language,
         )
         messages.append({"role": "assistant", "content": text})
         messages.append({"role": "user", "content": f"Result of {name}:\n{observation}"})
 
 
-def _system_prompt(scripts) -> str:
+def _system_prompt(scripts, language: str = "en") -> str:
+    base = MAIN_SYSTEM.replace("Answer in English.", answer_instruction(language))
     if not scripts:
-        return MAIN_SYSTEM
-    lines = [MAIN_SYSTEM, "Installed scripts:"]
+        return base
+    lines = [base, "Installed scripts:"]
     for script in list(scripts)[:20]:
         lines.append(f"- {script.id}: {script.description}")
     return "\n".join(lines)
 
 
-def _run_tool(name: str, payload: dict, *, brief: str, router, fetch, limits, timeout: float, run_script) -> str:
+def _run_tool(
+    name: str,
+    payload: dict,
+    *,
+    brief: str,
+    router,
+    fetch,
+    limits,
+    timeout: float,
+    run_script,
+    language: str = "en",
+) -> str:
     try:
         if name == "fetch_article":
             return excerpt(fetch(payload["url"]).text)
@@ -128,6 +146,7 @@ def _run_tool(name: str, payload: dict, *, brief: str, router, fetch, limits, ti
             fetch=fetch,
             limits=limits,
             timeout=timeout,
+            language=language,
         )
     except MultiAgentXError as exc:
         return str(exc)

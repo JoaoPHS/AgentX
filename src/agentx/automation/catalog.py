@@ -14,6 +14,8 @@ from agentx.errors import MultiAgentXError
 
 _ID = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _KEYWORDS = re.compile(r"^keywords:\s*(.*)$", re.IGNORECASE)
+_PATTERNS = re.compile(r"^patterns:\s*(.*)$", re.IGNORECASE)
+_REGEX_MARK = re.compile(r"[()\[\]|+*?\\]")
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,7 @@ class ScriptInfo:
     path: Path
     description: str
     keywords: tuple[str, ...]
+    patterns: tuple[str, ...] = ()
 
 
 def is_script_id(value: str) -> bool:
@@ -71,6 +74,9 @@ def choose_script(message: str, scripts: list[ScriptInfo]) -> ScriptInfo | None:
                     score += 2
             elif re.search(rf"\b{re.escape(keyword)}\b", folded):
                 score += 1
+        for pattern in script.patterns:
+            if _pattern_matches(pattern, folded):
+                score += 4
         if score:
             ranked.append((score, script.id, script))
     if not ranked:
@@ -114,8 +120,10 @@ def install_text(directory: Path, filename: str, text: str) -> Path:
         raise MultiAgentXError("The script is not valid Python.") from exc
     if not (ast.get_docstring(tree) or "").strip():
         raise MultiAgentXError("Add a docstring that says what the script does.")
-    if not _keyword_line(ast.get_docstring(tree) or ""):
-        raise MultiAgentXError("Add a keywords line to the docstring, such as: keywords: toast, popup")
+    if not _match_line(ast.get_docstring(tree) or ""):
+        raise MultiAgentXError(
+            "Add a keywords or patterns line to the docstring, such as: keywords: toast, popup"
+        )
     directory.mkdir(parents=True, exist_ok=True)
     destination = (directory / f"{script_id}.py").resolve()
     if destination.parent != directory.resolve():
@@ -142,11 +150,16 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
     document = ast.get_docstring(ast.parse(text)) or ""
     description_lines: list[str] = []
     keywords: list[str] = []
+    patterns: list[str] = []
     for line in document.splitlines():
         stripped = line.strip()
         found = _KEYWORDS.match(stripped)
         if found:
             keywords.extend(part.strip() for part in found.group(1).split(",") if part.strip())
+            continue
+        found = _PATTERNS.match(stripped)
+        if found:
+            patterns.extend(part.strip() for part in found.group(1).split(",") if part.strip())
             continue
         if stripped:
             description_lines.append(stripped)
@@ -158,11 +171,31 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
         if token and token not in seen:
             seen.add(token)
             folded.append(token)
-    return ScriptInfo(script_id, path, description, tuple(folded))
+    folded_patterns = tuple(_fold(pattern) for pattern in patterns if _fold(pattern))
+    return ScriptInfo(script_id, path, description, tuple(folded), folded_patterns)
 
 
-def _keyword_line(document: str) -> bool:
-    return any(_KEYWORDS.match(line.strip()) for line in document.splitlines())
+def _match_line(document: str) -> bool:
+    return any(
+        _KEYWORDS.match(line.strip()) or _PATTERNS.match(line.strip())
+        for line in document.splitlines()
+    )
+
+
+def _pattern_matches(pattern: str, folded: str) -> bool:
+    if _REGEX_MARK.search(pattern):
+        try:
+            return re.search(pattern, folded) is not None
+        except re.error:
+            return False
+    words = [word for word in pattern.split() if word]
+    if not words:
+        return False
+    if len(words) == 1:
+        return re.search(rf"\b{re.escape(words[0])}\b", folded) is not None
+    gap = r"(?:\W+\w+){0,3}\W+"
+    body = gap.join(rf"\b{re.escape(word)}\b" for word in words)
+    return re.search(body, folded) is not None
 
 
 def _fold(text: str) -> str:

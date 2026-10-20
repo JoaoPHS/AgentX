@@ -17,6 +17,8 @@ from agentx.automation.catalog import (
     scripts_dir,
 )
 from agentx.automation.runner import run_script
+from agentx.config import answer_instruction
+from agentx.context import attach_folder_context, folder_context_for
 from agentx.errors import MultiAgentXError
 from agentx.tools.fetch import download
 
@@ -29,6 +31,7 @@ _TASK_WORDS = (
     "code",
     "analyze",
     "analyse",
+    "analise",
     "execute",
     "implement",
 )
@@ -44,7 +47,7 @@ ANALYSIS_SYSTEM = (
     "Routines first."
 )
 
-_PLANNING = ("search", "compare", "plan", "code", "analyze", "analyse", "implement")
+_PLANNING = ("search", "compare", "plan", "code", "analyze", "analyse", "analise", "implement")
 
 
 @dataclass(frozen=True)
@@ -76,14 +79,18 @@ class Orchestrator:
         local_ready = self.router.workers_ready()
         remote_ready = self.router.remote.block_reason() is None
         installed = load_catalog(scripts_dir(self.config))
-        analysis = f"{ANALYSIS_SYSTEM}\n{format_catalog(installed)}"
+        language = self.config.language
+        turn_context = folder_context_for(message, self.config, scripts=installed)
+        analysis = (
+            f"{ANALYSIS_SYSTEM}\n{answer_instruction(language)}\n{format_catalog(installed)}"
+        )
 
         def analyze(text: str) -> str:
             return self.router.complete(
                 "orchestrator",
                 [
                     {"role": "system", "content": analysis},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": attach_folder_context(text, turn_context)},
                 ],
                 max_tokens=self.config.orchestrator.max_tokens,
                 temperature=0,
@@ -114,6 +121,7 @@ class Orchestrator:
                 limits=self.config.limits,
                 timeout=self._timeout(),
                 on_token=token,
+                language=language,
             )
 
         def run_quick(brief: str, token) -> str:
@@ -124,6 +132,7 @@ class Orchestrator:
                 max_tokens=self.config.limits.quick_max_tokens,
                 timeout=self._timeout(),
                 on_token=token,
+                language=language,
             )
 
         def run_engineer(brief: str, prior: str, token) -> str:
@@ -138,6 +147,8 @@ class Orchestrator:
                 on_token=token,
                 run_script=launch_script,
                 scripts=installed,
+                language=language,
+                context=turn_context,
             )
 
         def launch_script(script_id: str, task: str) -> str:

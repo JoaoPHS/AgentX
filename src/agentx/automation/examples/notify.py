@@ -1,6 +1,7 @@
 """Show a notification on the phone.
 
 keywords: notification, notify, alert
+patterns: manda um aviso, me notifica, notifica de, send a notice, notify me
 """
 
 import shutil

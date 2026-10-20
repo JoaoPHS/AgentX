@@ -1,0 +1,19 @@
+{
+  "scripts": [
+    {
+      "name": "toast",
+      "description": "Show a short toast on the phone.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/MultiAgentX/main/src/agentx/automation/examples/toast.py"
+    },
+    {
+      "name": "notify",
+      "description": "Show a notification on the phone.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/MultiAgentX/main/src/agentx/automation/examples/notify.py"
+    },
+    {
+      "name": "battery",
+      "description": "Read the phone battery.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/MultiAgentX/main/src/agentx/automation/examples/battery.py"
+    }
+  ]
+}

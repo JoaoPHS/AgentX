@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agentx.config import FetchSettings, LimitSettings
+from agentx.config import FetchSettings, LimitSettings, answer_instruction
 from agentx.errors import MultiAgentXError
 from agentx.tools.fetch import Page
 from agentx.tools.render import (
@@ -42,6 +42,10 @@ def chunk_text(text: str, size: int, max_chunks: int) -> tuple[list[str], bool]:
     return chunks, start < len(text)
 
 
+def _spoken(prompt: str, language: str) -> str:
+    return prompt.replace("Answer in English.", answer_instruction(language))
+
+
 def quick_answer(
     brief: str,
     *,
@@ -50,11 +54,12 @@ def quick_answer(
     max_tokens: int,
     timeout: float,
     on_token=None,
+    language: str = "en",
 ) -> str:
     reason = router.block_reason("subagent")
     if reason:
         return reason
-    messages: list[dict] = [{"role": "system", "content": QUICK_SYSTEM}]
+    messages: list[dict] = [{"role": "system", "content": _spoken(QUICK_SYSTEM, language)}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": brief})
     text = router.complete(
@@ -77,6 +82,7 @@ def summarize_url(
     timeout: float,
     on_token=None,
     renderer=None,
+    language: str = "en",
 ) -> str:
     page: Page = fetch(url)
     if page.script_shell:
@@ -98,7 +104,7 @@ def summarize_url(
             router.complete(
                 "subagent",
                 [
-                    {"role": "system", "content": SUMMARY_SYSTEM},
+                    {"role": "system", "content": _spoken(SUMMARY_SYSTEM, language)},
                     {"role": "user", "content": chunk},
                 ],
                 max_tokens=limits.summary_max_tokens,
@@ -112,7 +118,7 @@ def summarize_url(
     merged = router.complete(
         "subagent",
         [
-            {"role": "system", "content": MERGE_SYSTEM},
+            {"role": "system", "content": _spoken(MERGE_SYSTEM, language)},
             {"role": "user", "content": "\n\n".join(part for part in summaries if part)},
         ],
         max_tokens=limits.summary_max_tokens,

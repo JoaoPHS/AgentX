@@ -1,6 +1,7 @@
 """Show a short toast on the phone.
 
 keywords: toast, popup
+patterns: dispara um toast, manda um toast, show a toast, fire a toast
 """
 
 import shutil

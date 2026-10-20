@@ -63,7 +63,32 @@ def test_catalog_matches_one_script_and_ignores_a_tie(tmp_path):
     assert choose_script("compare the two options", scripts) is None
 
 
-def test_clear_script_request_skips_analysis(tmp_path):
+def test_phrase_patterns_match_without_the_keyword(tmp_path):
+    _write(
+        tmp_path,
+        "toast.py",
+        TOAST.replace(
+            "keywords: toast, popup",
+            "keywords: toast, popup\npatterns: dispara um toast, manda um toast",
+        ),
+    )
+    _write(
+        tmp_path,
+        "notify.py",
+        NOTIFY.replace(
+            "keywords: notification, notify, alert",
+            "keywords: notification, notify, alert\npatterns: manda um aviso, me notifica, notifica.*chegou",
+        ),
+    )
+    scripts = load_catalog(tmp_path)
+    assert choose_script("dispara um toast agora", scripts).id == "toast"
+    assert choose_script("manda um aviso que o backup acabou", scripts).id == "notify"
+    assert choose_script("me notifica de que chegou", scripts).id == "notify"
+    assert choose_script("notifica agora que chegou", scripts).id == "notify"
+    assert choose_script(r"avisa com \bbackup\b", scripts) is None
+    steps, called = _plan("manda um aviso que o backup acabou", scripts)
+    assert called is False
+    assert steps[0].script == "notify"
     _write(tmp_path, "toast.py", TOAST)
     scripts = load_catalog(tmp_path)
     steps, called = _plan("show a toast that the backup finished", scripts)

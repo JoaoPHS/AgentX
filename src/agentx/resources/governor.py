@@ -1,4 +1,4 @@
-"""RAM, threads, battery, and one generation at a time."""
+"""RAM, threads, battery, heat, and one generation at a time."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import os
 import subprocess
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 from agentx.config import GovernorSettings
 
@@ -30,11 +31,13 @@ class Governor:
         settings: GovernorSettings,
         *,
         meminfo_path: str = "/proc/meminfo",
+        thermal_root: str = "/sys/class/thermal",
         battery_runner=None,
         cpu_count: int | None | object = ...,
     ) -> None:
         self.settings = settings
         self.meminfo_path = meminfo_path
+        self.thermal_root = thermal_root
         self.battery_runner = battery_runner
         self._cpu_count = cpu_count
         self.lock = threading.Lock()
@@ -42,15 +45,19 @@ class Governor:
     def assess(self, *, default_context: int) -> LocalDecision:
         text = _read_text(self.meminfo_path)
         battery = read_battery(self.battery_runner)
+        temperature = read_cpu_temperature(self.thermal_root)
         cpu_count = os.cpu_count() if self._cpu_count is ... else self._cpu_count
         return decide_local(
             text,
             cpu_count=cpu_count if isinstance(cpu_count, int) or cpu_count is None else None,
             battery=battery,
+            temperature_c=temperature,
             min_mem_mb=self.settings.min_mem_mb,
             max_threads=self.settings.max_threads,
             low_battery_percent=self.settings.low_battery_percent,
             low_battery_context=self.settings.low_battery_context,
+            warm_celsius=self.settings.warm_celsius,
+            hot_celsius=self.settings.hot_celsius,
             default_context=default_context,
         )
 
@@ -65,6 +72,9 @@ def decide_local(
     low_battery_percent: int,
     low_battery_context: int,
     default_context: int,
+    temperature_c: int | None = None,
+    warm_celsius: int = 70,
+    hot_celsius: int = 85,
 ) -> LocalDecision:
     if meminfo is None:
         return LocalDecision(
@@ -79,11 +89,18 @@ def decide_local(
             0,
             f"Free memory is below {min_mem_mb} MB. The local model will not start.",
         )
+    if temperature_c is not None and temperature_c >= hot_celsius:
+        return LocalDecision(
+            0,
+            0,
+            "The phone is too hot. Generation is paused until it cools down.",
+        )
     low_battery = bool(
         battery and battery.percent < low_battery_percent and not battery.charging
     )
-    threads = threads_for(cpu_count, max_threads, low_battery=low_battery)
-    context = low_battery_context if low_battery else default_context
+    warm = temperature_c is not None and temperature_c >= warm_celsius
+    threads = threads_for(cpu_count, max_threads, low_battery=low_battery, warm=warm)
+    context = low_battery_context if low_battery or warm else default_context
     return LocalDecision(threads, context, None)
 
 
@@ -100,8 +117,14 @@ def memory_allows(available_kb: int, min_mem_mb: int) -> bool:
     return available_kb >= min_mem_mb * 1024
 
 
-def threads_for(cpu_count: int | None, max_threads: int, *, low_battery: bool) -> int:
-    if low_battery:
+def threads_for(
+    cpu_count: int | None,
+    max_threads: int,
+    *,
+    low_battery: bool,
+    warm: bool = False,
+) -> int:
+    if low_battery or warm:
         return 1
     half = max(1, (cpu_count or 1) // 2)
     ceiling = max(1, max_threads)
@@ -146,9 +169,46 @@ def _default_battery_runner(command: list[str]):
     )
 
 
+def read_cpu_temperature(root: str) -> int | None:
+    base = Path(root)
+    if not base.is_dir():
+        return None
+    readings: list[int] = []
+    for zone in base.glob("thermal_zone*"):
+        kind = (_read_text(str(zone / "type")) or "").casefold()
+        if "cpu" not in kind:
+            continue
+        reading = _parse_temperature(_read_text(str(zone / "temp")))
+        if reading is not None:
+            readings.append(reading)
+    if not readings:
+        return None
+    return max(readings)
+
+
 def _read_text(path: str) -> str | None:
     try:
         with open(path, encoding="utf-8") as handle:
             return handle.read()
     except OSError:
         return None
+
+
+def _parse_temperature(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    token = raw.strip().split()[0] if raw.strip() else ""
+    if token.startswith("-"):
+        number = token[1:]
+        sign = -1
+    else:
+        number = token
+        sign = 1
+    if not number.isdigit():
+        return None
+    value = sign * int(number)
+    if abs(value) >= 1000:
+        value //= 1000
+    if value < 0 or value > 150:
+        return None
+    return value
