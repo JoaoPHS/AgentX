@@ -8,6 +8,7 @@ from agentx.errors import MultiAgentXError
 from agentx.llm.local import build_server_command
 from agentx.llm.openai_http import parse_anthropic_line, parse_openai_line
 from agentx.llm.router import Router, Session, role_uses_remote
+from agentx.orchestrator import Orchestrator
 
 
 class Governor:
@@ -19,9 +20,11 @@ class Local:
     def __init__(self, reason=None):
         self.reason = reason
         self.starts = 0
+        self.checks = 0
         self.calls = []
 
     def possible(self):
+        self.checks += 1
         return self.reason
 
     def ensure_running(self):
@@ -78,6 +81,38 @@ def test_local_scope_ignores_the_key():
         assert router.complete(role, [{"role": "user", "content": "hi"}]) == "local"
     assert remote.calls == []
     assert local.starts == 3
+
+
+def test_all_scope_never_checks_the_local_file(tmp_path):
+    class StrictLocal(Local):
+        def possible(self):
+            raise AssertionError("cloud scope must not check the local model")
+
+        def ensure_running(self):
+            raise AssertionError("cloud scope must not start llama-server")
+
+    config = AppConfig()
+    config.routing.remote_scope = "all"
+    config.routing.remote_provider = "openai"
+    config.openai.api_key = "present"
+    config.openai.model = "gpt-test"
+    config.scripts.dir = str(tmp_path)
+    session = Session()
+    local = StrictLocal()
+    remote = Remote()
+    router = Router(config, session, Governor(), local, remote)
+    assert router.workers_ready() is True
+    result = Orchestrator(config, session, router).handle("what is a file")
+    assert result == "remote"
+    assert local.starts == 0
+
+
+def test_mixed_scopes_still_check_the_local_file():
+    for scope in ("local", "orchestrator", "main"):
+        router, local, _remote = _router(scope, local_reason="missing gguf")
+        assert router.workers_ready() is False
+        assert local.checks == 1
+        assert router.block_reason("subagent") == "missing gguf"
 
 
 def test_all_uses_the_key_and_does_not_start_the_server():

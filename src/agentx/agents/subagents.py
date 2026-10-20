@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agentx.config import FetchSettings, LimitSettings, answer_instruction
 from agentx.errors import MultiAgentXError
+from agentx.llm.router import token_budget
 from agentx.tools.fetch import Page
 from agentx.tools.render import (
     BROWSER_EXTRA_MISSING,
@@ -20,12 +21,14 @@ QUICK_SYSTEM = (
 
 SUMMARY_SYSTEM = (
     "Summarize the passage with the essential facts. "
-    "Answer in English."
+    "Answer in English. "
+    "Keep the reply within the token budget."
 )
 
 MERGE_SYSTEM = (
     "Merge the partial summaries into one, without repeating. "
-    "Answer in English."
+    "Answer in English. "
+    "Keep the reply within the token budget."
 )
 
 
@@ -107,7 +110,7 @@ def summarize_url(
                     {"role": "system", "content": _spoken(SUMMARY_SYSTEM, language)},
                     {"role": "user", "content": chunk},
                 ],
-                max_tokens=limits.summary_max_tokens,
+                max_tokens=token_budget(router, "subagent", limits.summary_max_tokens),
                 temperature=0.2,
                 timeout=timeout,
                 on_token=stream,
@@ -121,7 +124,7 @@ def summarize_url(
             {"role": "system", "content": _spoken(MERGE_SYSTEM, language)},
             {"role": "user", "content": "\n\n".join(part for part in summaries if part)},
         ],
-        max_tokens=limits.summary_max_tokens,
+        max_tokens=token_budget(router, "subagent", limits.summary_max_tokens),
         temperature=0.2,
         timeout=timeout,
         on_token=on_token,

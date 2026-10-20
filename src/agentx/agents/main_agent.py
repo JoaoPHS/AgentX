@@ -9,11 +9,13 @@ from agentx.agents.subagents import summarize_url
 from agentx.config import answer_instruction
 from agentx.context import attach_folder_context
 from agentx.errors import MultiAgentXError
+from agentx.llm.router import token_budget
 from agentx.tools.fetch import excerpt
 
 MAIN_SYSTEM = (
     "You are the engineer. Carry out only the part of the task you were given. "
     "Answer in English. "
+    "Keep the reply within the token budget. "
     "Use material already gathered and do not redo it. Do not announce the agent. "
     "If you need a page you do not have yet, reply with only one line:\n"
     'TOOL fetch_article {"url":"https://..."}\n'
@@ -84,7 +86,7 @@ def run_main(
         text = router.complete(
             "main",
             call,
-            max_tokens=limits.main_max_tokens,
+            max_tokens=token_budget(router, "main", limits.main_max_tokens),
             temperature=0.2,
             timeout=timeout,
             on_token=emitter,

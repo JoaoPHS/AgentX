@@ -1,4 +1,4 @@
-"""llama-server process, running only while there is work."""
+"""llama-server process, or a local Ollama OpenAI-compatible server."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -16,6 +17,8 @@ from agentx.config import LocalSettings
 from agentx.errors import MultiAgentXError
 from agentx.llm.openai_http import stream_chat
 from agentx.resources.governor import Governor
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 
 
 def build_server_command(
@@ -50,6 +53,20 @@ def build_server_command(
     ]
 
 
+def loopback_http_url(url: str) -> str | None:
+    """Return a stripped URL when the host is loopback; otherwise None."""
+    parsed = urlparse((url or "").strip())
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    if parsed.username or parsed.password:
+        return None
+    host = (parsed.hostname or "").casefold()
+    if host not in _LOOPBACK_HOSTS:
+        return None
+    rendered = parsed.geturl()
+    return rendered.rstrip("/")
+
+
 class LocalServer:
     def __init__(
         self,
@@ -72,6 +89,8 @@ class LocalServer:
         atexit.register(self.stop, force=True)
 
     def possible(self) -> str | None:
+        if self.settings.provider == "ollama":
+            return self._ollama_possible()
         if not self.settings.model_path:
             return "The local model path is missing from the config."
         if not Path(self.settings.model_path).is_file():
@@ -85,6 +104,8 @@ class LocalServer:
         reason = self.possible()
         if reason:
             raise MultiAgentXError(reason)
+        if self.settings.provider == "ollama":
+            return
         decision = self.governor.assess(default_context=self.settings.context)
         limits = (decision.threads, decision.context)
         with self._lock:
@@ -107,6 +128,27 @@ class LocalServer:
         timeout: float,
         on_token=None,
     ) -> str:
+        if self.settings.provider == "ollama":
+            self.ensure_running()
+            base = loopback_http_url(self.settings.base_url)
+            if base is None:
+                raise MultiAgentXError(
+                    "The Ollama base URL must use 127.0.0.1 or localhost."
+                )
+            return stream_chat(
+                f"{base}/v1/chat/completions",
+                payload={
+                    "model": self.settings.model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stream": True,
+                },
+                timeout=timeout,
+                trust_env=False,
+                remote=False,
+                on_token=on_token,
+            )
         self._set_busy(1)
         try:
             self.ensure_running()
@@ -127,6 +169,32 @@ class LocalServer:
             )
         finally:
             self._set_busy(-1)
+
+    def _ollama_possible(self) -> str | None:
+        base = loopback_http_url(self.settings.base_url)
+        if base is None:
+            return "The Ollama base URL must use 127.0.0.1 or localhost."
+        if not self.settings.model:
+            return "The Ollama model name is missing from the config."
+        decision = self.governor.assess(default_context=self.settings.context)
+        if decision.reason:
+            return decision.reason
+        names = self._ollama_model_names(base)
+        if names is None:
+            return f"Ollama is not running on {base}."
+        if self.settings.model not in names:
+            name = self.settings.model
+            return (
+                f"The Ollama model {name} is not installed. "
+                f"Pull it with: ollama pull {name}"
+            )
+        return None
+
+    def _ollama_model_names(self, base: str) -> list[str] | None:
+        names = _names_from_ollama_tags(_http_json(f"{base}/api/tags"))
+        if names is not None:
+            return names
+        return _names_from_openai_models(_http_json(f"{base}/v1/models"))
 
     def stop(self, force: bool = False) -> None:
         with self._lock:
@@ -218,3 +286,49 @@ def _lower_priority() -> None:
         os.nice(19)
     except OSError:
         return
+
+
+def _http_json(url: str):
+    try:
+        response = httpx.get(url, timeout=2, trust_env=False)
+    except httpx.HTTPError:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+def _names_from_ollama_tags(payload) -> list[str] | None:
+    if not isinstance(payload, dict):
+        return None
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return None
+    names: list[str] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        for key in ("name", "model"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                names.append(value)
+    return names
+
+
+def _names_from_openai_models(payload) -> list[str] | None:
+    if not isinstance(payload, dict):
+        return None
+    models = payload.get("data")
+    if not isinstance(models, list):
+        return None
+    names: list[str] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("id")
+        if isinstance(value, str) and value:
+            names.append(value)
+    return names

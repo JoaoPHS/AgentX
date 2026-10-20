@@ -15,6 +15,17 @@ The command is `agentx`. The old `multiagentx` command is gone. `agentx init` wr
 - **Saved preferences.** `/model` writes the scope, provider, and model id into the config. `/key`, or `agentx key`, stores a provider key and does not print it. `/language` stores `en` or `pt-BR`. The next launch restores them. `agentx init` does not replace an existing config or delete the scripts folder.
 - **Folder context.** One task can read a single matching folder, add a short excerpt to that turn, and drop the excerpt when the turn ends.
 - **Language.** Answer text follows the saved language. Commands, tool lines, and errors stay English.
+- **Remote model ids.** OpenRouter, OpenAI, and Anthropic model ids are free strings. A slug such as `meta-llama/llama-3.2-3b-instruct:free` is saved and sent as-is, including the `:free` suffix. A 404 means that provider rejected the id, not that agentx has a fixed list.
+- **Ollama.** `[local] provider = "ollama"` talks to a local Ollama server on loopback instead of starting llama-server. Set `local.model`, or run `/model ollama qwen2.5:1.5b`. agentx does not download or pull the model. llama-server remains the default.
+- **Remote token cap.** Each of `[openrouter]`, `[anthropic]`, and `[openai]` has an editable `max_tokens` (default 1024). Long remote replies use that cap. Orchestrator analysis stays at 80 tokens and `quick_answer` keeps its small cap. If a stream stops because it hit the limit (`finish_reason=length` or Anthropic `stop_reason=max_tokens`), the reply ends with `The reply reached the token limit.` agentx does not spend a second paid call to continue.
+- **Config doctor.** `agentx doctor` checks the same config file (`MULTIAGENTX_CONFIG` or `~/.config/agentx/config.toml`). A missing file or broken TOML fails with a line number. It never prints keys, never starts llama-server, and never calls a remote API.
+
+```toml
+[local]
+provider = "ollama"
+model = "qwen2.5:1.5b"
+base_url = "http://127.0.0.1:11434"
+```
 
 ```text
 agentx "plan a script that reads a CSV and writes a summary"
@@ -22,7 +33,7 @@ agentx "compare two ways to validate a form"
 agentx "write a shell function that backs up a directory"
 ```
 
-There is no graphical interface. The local model is a separate `llama-server` process. It starts for a request and exits after it sits idle, so the phone does not keep the weights in RAM.
+There is no graphical interface. The default local model is a separate `llama-server` process. It starts for a request and exits after it sits idle, so the phone does not keep the weights in RAM. With `[local] provider = "ollama"`, agentx does not start llama-server and talks to Ollama on loopback instead.
 
 ```mermaid
 flowchart TD
@@ -36,7 +47,7 @@ flowchart TD
   plan --> mainAgent[Main agent]
   routine --> router[Router]
   mainAgent --> router
-  router --> local[llama-server]
+  router --> local[llama-server or Ollama]
   router --> remote[Your API key, only in the scope you chose]
 ```
 
@@ -70,6 +81,8 @@ The binary is `build/bin/llama-server`. Put it on `PATH`, or set `local.binary` 
 
 For a modest phone, use **Qwen2.5-1.5B-Instruct**, GGUF **Q4_K_M**. Download the file yourself and put its path in the config. The app does not fetch the GGUF.
 
+To use Ollama instead, install and start Ollama yourself, pull a model with `ollama pull`, then set `[local] provider = "ollama"` and `local.model` to that name. `/model ollama qwen2.5:1.5b` saves the same fields. agentx does not run `ollama pull`. The Ollama URL must be `127.0.0.1` or `localhost`.
+
 ## Configuration
 
 ```bash
@@ -80,8 +93,11 @@ This writes `~/.config/agentx/config.toml` with mode `600` and no secrets. If an
 
 ```toml
 [local]
+provider = "llama"               # llama or ollama
 model_path = "/path/to/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+model = ""                       # Ollama name, e.g. qwen2.5:1.5b
 binary = "llama-server"
+base_url = "http://127.0.0.1:11434"
 port = 18080
 context = 2048
 idle_seconds = 120
@@ -92,18 +108,21 @@ remote_scope = "local"           # local, all, orchestrator, or main
 
 [openrouter]
 base_url = "https://openrouter.ai/api/v1"
-model = ""                       # any model id from that provider
+model = ""                       # any model id from that provider, including :free slugs
+max_tokens = 1024
 
 [anthropic]
 base_url = "https://api.anthropic.com"
 model = ""
+max_tokens = 1024
 
 [openai]
 base_url = "https://api.openai.com/v1"
 model = ""
+max_tokens = 1024
 ```
 
-The remote model id stays in the config. There is no fixed slug in the code. Each provider calls whichever model its key can use. The commands below do not pick a vendor. They only choose where the configured key is allowed to run.
+The remote model id stays in the config. There is no fixed slug in the code. Each provider calls whichever model its key can use, including OpenRouter free ids that end in `:free`. If the remote API returns 404, agentx reports that the API did not accept that id. The commands below do not pick a vendor. They only choose where the configured key is allowed to run.
 
 | Scope | Where the key is used |
 | --- | --- |
@@ -116,9 +135,20 @@ Keys come from `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `
 
 Point `MULTIAGENTX_CONFIG` at another file when you need one.
 
+`agentx doctor` reads that file and prints one OK, FAIL, or WARN line per check. Exit 0 means nothing failed. A missing file tells you to run `agentx init`. Broken TOML names the line.
+
+```text
+agentx doctor
+Config file: OK
+TOML: OK
+remote_scope: OK
+remote_provider: OK
+local.model_path: OK
+```
+
 ## Saved preferences
 
-`/model` updates the current session and writes the same choice into `config.toml`. `/model local`, `/model all`, `/model orchestrator`, and `/model main` save the scope. `/model openai main` also saves the provider. `/model openai gpt-4o-mini` saves that provider and model id. The next `agentx` process reads them back.
+`/model` updates the current session and writes the same choice into `config.toml`. `/model local`, `/model all`, `/model orchestrator`, and `/model main` save the scope. `/model openai main` also saves the provider. `/model openai gpt-4o-mini` saves that provider and model id. `/model ollama qwen2.5:1.5b` saves the local Ollama provider and name; it is not a remote cloud provider. The next `agentx` process reads them back.
 
 `/language` prints `en` or `pt-BR`. `/language en` and `/language pt-BR` switch the answer language and save it. `pt` and `pt_BR` are stored as `pt-BR`. An unknown value prints an error and leaves the file unchanged. Answer text uses "Answer in English." or "Answer in Brazilian Portuguese." Commands, script ids, tool lines, and errors stay English.
 
@@ -188,7 +218,7 @@ The orchestrator does not answer you. It splits the task so a larger model only 
 
 `/engineer` followed by the task skips analysis and sends the whole task to the main agent.
 
-The server you start listens only on `127.0.0.1`. Before it loads the model, agentx reads `MemAvailable` from `/proc/meminfo` and refuses to start below 700 MB. Threads are half the cores, capped at 2. If `termux-battery-status` exists and the battery is under 20% while unplugged, it drops to 1 thread and a context of 1024. It also reads CPU thermal zones under `/sys/class/thermal`. At 70 C it uses that same lighter limit. At 85 C it pauses generation until the phone cools down. If the sensors cannot be read, heat is ignored. The process runs at low priority. After 120 seconds without use it is stopped. One generation runs at a time.
+The llama-server process listens only on `127.0.0.1`. Before it loads the model, agentx reads `MemAvailable` from `/proc/meminfo` and refuses to start below 700 MB. Threads are half the cores, capped at 2. If `termux-battery-status` exists and the battery is under 20% while unplugged, it drops to 1 thread and a context of 1024. It also reads CPU thermal zones under `/sys/class/thermal`. At 70 C it uses that same lighter limit. At 85 C it pauses generation until the phone cools down. If the sensors cannot be read, heat is ignored. The process runs at low priority. After 120 seconds without use it is stopped. One generation runs at a time. Ollama uses the same 700 MB and 85 C checks and does not start llama-server.
 
 Page downloads stop at 2 MB, time out, and reject URLs that resolve to private or link-local addresses. That static download is the default for `summarize_url`.
 
@@ -218,6 +248,7 @@ The default answer language is English. `/language pt-BR` asks the model to answ
 /model all
 /model orchestrator
 /model main
+/model ollama qwen2.5:1.5b
 /language
 /language en
 /language pt-BR
@@ -228,7 +259,7 @@ The default answer language is English. `/language pt-BR` asks the model to answ
 
 `/model` updates the session and writes the same choice into the config. Alone, it prints the current scope and the configured provider, and never the key.
 
-`/model all` uses whichever remote key is already in the config. To pick a provider, name it: `/model openrouter main`, `/model anthropic all`, or `/model openai orchestrator`. `/model openai gpt-4o-mini` saves that model id.
+`/model all` uses whichever remote key is already in the config. To pick a provider, name it: `/model openrouter main`, `/model anthropic all`, or `/model openai orchestrator`. `/model openai gpt-4o-mini` saves that model id. `/model openrouter meta-llama/llama-3.2-3b-instruct:free` saves that exact string. `/model ollama qwen2.5:1.5b` points the local engine at Ollama.
 
 If the chosen model cannot run, the task stops with the reason instead of pretending the work was done.
 

@@ -37,6 +37,19 @@ def role_uses_remote(scope: str, role: str) -> bool:
     return False
 
 
+def scope_needs_local(scope: str) -> bool:
+    """Local, orchestrator, and main still run at least one role on the phone."""
+    return scope != "all"
+
+
+def token_budget(router, role: str, local_cap: int) -> int | None:
+    """None means the remote provider cap. Tight role caps still pass a number."""
+    uses = getattr(router, "uses_remote", None)
+    if callable(uses) and uses(role):
+        return None
+    return local_cap
+
+
 class Router:
     def __init__(self, config: AppConfig, session: Session, governor, local, remote) -> None:
         self.config = config
@@ -57,6 +70,8 @@ class Router:
         return self.local.possible()
 
     def workers_ready(self) -> bool:
+        if not scope_needs_local(self.scope()):
+            return True
         return self.local.possible() is None
 
     def complete(
@@ -64,7 +79,7 @@ class Router:
         role: str,
         messages: list[dict],
         *,
-        max_tokens: int = 256,
+        max_tokens: int | None = None,
         temperature: float = 0.2,
         timeout: float = 180,
         on_token=None,
@@ -81,11 +96,12 @@ class Router:
                     timeout=timeout,
                     on_token=on_token,
                 )
+        local_cap = 256 if max_tokens is None else max_tokens
         with self.governor.lock:
             self.local.ensure_running()
             return self.local.complete(
                 messages,
-                max_tokens=max_tokens,
+                max_tokens=local_cap,
                 temperature=temperature,
                 timeout=timeout,
                 on_token=on_token,

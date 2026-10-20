@@ -13,6 +13,9 @@ from agentx.errors import MultiAgentXError
 
 SCOPES = ("local", "all", "orchestrator", "main")
 PROVIDERS = ("openrouter", "anthropic", "openai")
+LOCAL_PROVIDERS = ("llama", "ollama")
+DEFAULT_REMOTE_MAX_TOKENS = 1024
+_TOML_COORD = re.compile(r"line (\d+)(?:, column (\d+))?", re.IGNORECASE)
 _SCOPE_ALIASES = {
     "local": "local",
     "all": "all",
@@ -25,12 +28,15 @@ TEMPLATE = """\
 # Keys: OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, or api_key in the sections.
 
 [local]
+provider = "llama"
 model_path = ""
+model = ""
 binary = "llama-server"
 host = "127.0.0.1"
 port = 18080
 context = 2048
 idle_seconds = 120
+base_url = "http://127.0.0.1:11434"
 
 [routing]
 # openrouter, anthropic, or openai. The scope applies to whichever key you set.
@@ -41,14 +47,17 @@ remote_scope = "local"
 [openrouter]
 base_url = "https://openrouter.ai/api/v1"
 model = ""
+max_tokens = 1024
 
 [anthropic]
 base_url = "https://api.anthropic.com"
 model = ""
+max_tokens = 1024
 
 [openai]
 base_url = "https://api.openai.com/v1"
 model = ""
+max_tokens = 1024
 
 [governor]
 min_mem_mb = 700
@@ -81,12 +90,15 @@ dir = ""
 
 @dataclass
 class LocalSettings:
+    provider: str = "llama"
     model_path: str = ""
+    model: str = ""
     binary: str = "llama-server"
     host: str = "127.0.0.1"
     port: int = 18080
     context: int = 2048
     idle_seconds: int = 120
+    base_url: str = "http://127.0.0.1:11434"
 
 
 @dataclass
@@ -100,12 +112,14 @@ class ProviderSettings:
     base_url: str
     model: str = ""
     api_key: str = ""
+    max_tokens: int = DEFAULT_REMOTE_MAX_TOKENS
 
     def __repr__(self) -> str:
         key = "***" if self.api_key else ""
         return (
             f"ProviderSettings(base_url={self.base_url!r}, "
-            f"model={self.model!r}, api_key={key!r})"
+            f"model={self.model!r}, api_key={key!r}, "
+            f"max_tokens={self.max_tokens})"
         )
 
 
@@ -203,10 +217,11 @@ def load_config(path: Path | None = None) -> AppConfig:
     config = AppConfig(path=destination)
     if destination.exists():
         _warn_permissions(destination)
+        text = destination.read_text(encoding="utf-8")
         try:
-            raw = tomllib.loads(destination.read_text(encoding="utf-8"))
+            raw = tomllib.loads(text)
         except tomllib.TOMLDecodeError as exc:
-            raise MultiAgentXError("The config file is not valid TOML.") from exc
+            raise MultiAgentXError(format_toml_parse_error(exc, text)) from exc
         if not isinstance(raw, dict):
             raise MultiAgentXError("The config file is not valid TOML.")
         _apply(config, raw)
@@ -235,12 +250,18 @@ def _warn_permissions(path: Path) -> None:
 
 def _apply(config: AppConfig, raw: dict) -> None:
     local = _table(raw, "local")
+    if "provider" in local:
+        config.local.provider = _str(local, "provider", config.local.provider)
+    elif "local_provider" in local:
+        config.local.provider = _str(local, "local_provider", config.local.provider)
     config.local.model_path = _str(local, "model_path", config.local.model_path)
+    config.local.model = _str(local, "model", config.local.model).strip()
     config.local.binary = _str(local, "binary", config.local.binary)
     config.local.host = _str(local, "host", config.local.host)
     config.local.port = _int(local, "port", config.local.port)
     config.local.context = _int(local, "context", config.local.context)
     config.local.idle_seconds = _int(local, "idle_seconds", config.local.idle_seconds)
+    config.local.base_url = _str(local, "base_url", config.local.base_url).rstrip("/")
 
     routing = _table(raw, "routing")
     config.routing.remote_provider = _str(
@@ -330,6 +351,7 @@ def _apply_provider(settings: ProviderSettings, table: dict) -> None:
     settings.base_url = _str(table, "base_url", settings.base_url).rstrip("/")
     settings.model = _str(table, "model", settings.model).strip()
     settings.api_key = _str(table, "api_key", settings.api_key).strip()
+    settings.max_tokens = _provider_max_tokens(table, settings.max_tokens)
 
 
 def _apply_env(config: AppConfig) -> None:
@@ -353,7 +375,18 @@ def normalize_scope(value: str) -> str | None:
     return _SCOPE_ALIASES.get(value.strip().casefold())
 
 
+def _unknown_local_provider() -> str:
+    listed = ", ".join(LOCAL_PROVIDERS[:-1]) + f", or {LOCAL_PROVIDERS[-1]}"
+    return f"Unknown local provider. Use {listed}."
+
+
 def _validate(config: AppConfig) -> None:
+    provider = config.local.provider.strip().casefold()
+    if not provider:
+        provider = "llama"
+    if provider not in LOCAL_PROVIDERS:
+        raise MultiAgentXError(_unknown_local_provider())
+    config.local.provider = provider
     if config.routing.remote_provider not in PROVIDERS:
         raise MultiAgentXError(_unknown_provider())
     scope = normalize_scope(config.routing.remote_scope)
@@ -389,6 +422,53 @@ def _int(table: dict, key: str, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise MultiAgentXError(f"The config value {key} must be an integer.")
     return value
+
+
+def _provider_max_tokens(table: dict, default: int) -> int:
+    if "max_tokens" not in table:
+        return default
+    value = table["max_tokens"]
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise MultiAgentXError("The config value max_tokens must be a positive integer.")
+    return value
+
+
+def toml_error_location(exc: BaseException) -> tuple[int | None, int | None]:
+    lineno = getattr(exc, "lineno", None)
+    colno = getattr(exc, "colno", None)
+    if isinstance(lineno, int) and lineno > 0:
+        column = colno if isinstance(colno, int) and colno > 0 else None
+        return lineno, column
+    match = _TOML_COORD.search(str(exc))
+    if match is None:
+        return None, None
+    line = int(match.group(1))
+    column = int(match.group(2)) if match.group(2) else None
+    return line, column
+
+
+def format_toml_parse_error(exc: BaseException, text: str = "") -> str:
+    line, column = toml_error_location(exc)
+    if line is not None and column is not None:
+        return f"The config file is not valid TOML (line {line}, column {column})."
+    if line is not None:
+        return f"The config file is not valid TOML (line {line})."
+    return "The config file is not valid TOML."
+
+
+def toml_error_line_text(text: str, line: int | None) -> str | None:
+    """Return the bad line for diagnostics, or None when it may contain a secret."""
+    if line is None or not text:
+        return None
+    rows = text.splitlines()
+    if line < 1 or line > len(rows):
+        return None
+    snippet = rows[line - 1]
+    if "api_key" in snippet.casefold():
+        return None
+    return snippet
 
 
 def normalize_language(value: str) -> str | None:
@@ -428,6 +508,13 @@ def save_config_values(config: AppConfig, sections: dict[str, dict[str, str]]) -
             settings.model = values["model"]
         if "api_key" in values:
             settings.api_key = values["api_key"]
+    local_values = sections.get("local") or {}
+    if "provider" in local_values:
+        config.local.provider = local_values["provider"]
+    if "model" in local_values:
+        config.local.model = local_values["model"]
+    if "base_url" in local_values:
+        config.local.base_url = local_values["base_url"].rstrip("/")
     language = sections.get("preferences", {}).get("language")
     if language is not None:
         config.language = language

@@ -17,6 +17,7 @@ from agentx.config import (
     normalize_scope,
     save_config_values,
 )
+from agentx.doctor import doctor_command
 from agentx.errors import MultiAgentXError
 from agentx.llm.local import LocalServer
 from agentx.llm.remote import RemoteClient
@@ -36,6 +37,7 @@ Usage:
   agentx                 open the chat
   agentx "task"          run one task and exit
   agentx init            write a config file with no secrets
+  agentx doctor          check the config file
   agentx key PROVIDER KEY save a provider key in the config
   agentx script list     list installed automation scripts
   agentx script add FILE copy a Python script into the script directory
@@ -48,10 +50,12 @@ In the chat:
   /model all
   /model orchestrator
   /model main
-  /model PROVIDER MODEL_ID    save that provider and model id
+  /model PROVIDER MODEL_ID    save that remote provider and model id
+  /model ollama MODEL_ID      save local.provider=ollama and that Ollama name
   /language                   show the answer language
   /language en
   /language pt-BR
+  /lang                       same commands as /language
   /key PROVIDER KEY           save a provider key in the config
   /engineer <task>            send the task straight to the main agent
   /scripts                    list installed automation scripts
@@ -61,7 +65,8 @@ In the chat:
 _REMOTE_SCOPES = {"all", "orchestrator", "main"}
 _MODEL_USAGE = (
     "Use /model local, /model all, /model orchestrator, or /model main. "
-    "The scope applies to the remote key in the config."
+    "The scope applies to the remote key in the config. "
+    "Use /model ollama MODEL to set the local Ollama model."
 )
 _KEY_USAGE = "Use /key openrouter, /key anthropic, or /key openai, followed by the key."
 
@@ -93,6 +98,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"Config written to {path}")
         return 0
+    if args and args[0] == "doctor":
+        if args[1:]:
+            print("Use agentx doctor.", file=sys.stderr)
+            return 1
+        return doctor_command()
     if args and args[0] == "key":
         try:
             config = load_config()
@@ -207,10 +217,10 @@ def interpret(line: str, session: Session, config: AppConfig) -> tuple[str, str,
         return ("reply", describe_session(session, config), False)
     if text.startswith("/model "):
         return ("reply", apply_model_command(text[len("/model ") :].strip(), session, config), False)
-    if text == "/language":
+    if text in {"/language", "/lang"}:
         return ("reply", describe_language(config), False)
-    if text.startswith("/language "):
-        return ("reply", apply_language_command(text[len("/language ") :].strip(), config), False)
+    if text.startswith("/language ") or text.startswith("/lang "):
+        return ("reply", apply_language_command(text.split(maxsplit=1)[1].strip(), config), False)
     if text == "/key":
         return ("reply", _KEY_USAGE, False)
     if text.startswith("/key "):
@@ -254,6 +264,11 @@ def apply_model_command(argument: str, session: Session, config: AppConfig | Non
             session.provider = parts[0]
             failed = _save_model(config, provider=parts[0], model=model_name)
             return failed or f"Session: {parts[0]}, model {model_name}."
+    if parts and parts[0] == "ollama" and len(parts) >= 2:
+        model_name = " ".join(parts[1:]).strip()
+        if model_name:
+            failed = _save_ollama(config, model_name)
+            return failed or f"Local provider: ollama, model {model_name}."
     return _MODEL_USAGE
 
 
@@ -294,6 +309,12 @@ def key_command(config: AppConfig, args: list[str]) -> int:
         return 1
     print(message)
     return 0
+
+
+def _save_ollama(config: AppConfig | None, model: str) -> str | None:
+    if config is None:
+        return None
+    return _save_sections(config, {"local": {"provider": "ollama", "model": model}})
 
 
 def _save_model(

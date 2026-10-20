@@ -60,7 +60,44 @@ def test_unknown_model_values_do_not_write(tmp_path):
     assert "/model" in apply_model_command("claude", Session(), config)
     assert "/model" in apply_model_command("notaprovider main", Session(), config)
     assert "/model" in apply_model_command("openai local", Session(), config)
+    assert "/model" in apply_model_command("ollama", Session(), config)
     assert path.read_bytes() == before
+
+
+def test_openrouter_free_slug_survives_reload(tmp_path):
+    path = tmp_path / "config.toml"
+    init_config(path)
+    config = load_config(path)
+    slug = "meta-llama/llama-3.2-3b-instruct:free"
+    assert apply_model_command(f"openrouter {slug}", Session(), config) == (
+        f"Session: openrouter, model {slug}."
+    )
+    reloaded = load_config(path)
+    assert reloaded.openrouter.model == slug
+    assert reloaded.routing.remote_provider == "openrouter"
+    assert slug in path.read_text(encoding="utf-8")
+
+
+def test_ollama_model_is_local_and_survives_reload(tmp_path):
+    path = tmp_path / "config.toml"
+    init_config(path)
+    config = load_config(path)
+    config.routing.remote_provider = "anthropic"
+    session = Session()
+    session.scope = "orchestrator"
+    assert apply_model_command("ollama qwen2.5:1.5b", session, config) == (
+        "Local provider: ollama, model qwen2.5:1.5b."
+    )
+    assert config.local.provider == "ollama"
+    assert config.local.model == "qwen2.5:1.5b"
+    assert session.provider != "ollama"
+    assert session.scope == "orchestrator"
+    reloaded = load_config(path)
+    assert reloaded.local.provider == "ollama"
+    assert reloaded.local.model == "qwen2.5:1.5b"
+    assert reloaded.routing.remote_provider == "anthropic"
+    assert 'provider = "ollama"' in path.read_text(encoding="utf-8")
+    assert 'model = "qwen2.5:1.5b"' in path.read_text(encoding="utf-8")
 
 
 def test_key_is_saved_and_not_printed(tmp_path, monkeypatch, capsys):
@@ -109,12 +146,22 @@ def test_init_cli_keeps_an_existing_config_and_scripts(tmp_path, monkeypatch, ca
     assert list(scripts.iterdir()) == [marker]
 
 
+def test_lang_alias_saves_without_a_local_model(tmp_path):
+    path = tmp_path / "config.toml"
+    init_config(path)
+    config = load_config(path)
+    assert config.local.model_path == ""
+    assert interpret("/lang pt-BR", Session(), config) == ("reply", "Language: pt-BR.", False)
+    assert load_config(path).language == "pt-BR"
+
+
 def test_language_is_saved_and_unknown_values_do_not_write(tmp_path):
     path = tmp_path / "config.toml"
     init_config(path)
     config = load_config(path)
     assert describe_language(config) == "Language: en."
     assert interpret("/language", Session(), config)[1] == "Language: en."
+    assert interpret("/lang", Session(), config) == ("reply", "Language: en.", False)
     before = path.read_bytes()
     assert apply_language_command("esperanto", config) == "Unknown language. Use en or pt-BR."
     assert path.read_bytes() == before
