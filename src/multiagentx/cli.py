@@ -6,7 +6,7 @@ import os
 import sys
 import traceback
 
-from multiagentx.config import AppConfig, init_config, load_config
+from multiagentx.config import PROVIDERS, AppConfig, init_config, load_config, normalize_scope
 from multiagentx.errors import MultiAgentXError
 from multiagentx.llm.local import LocalServer
 from multiagentx.llm.remote import RemoteClient
@@ -15,21 +15,22 @@ from multiagentx.orchestrator import Orchestrator
 from multiagentx.resources.governor import Governor
 
 HELP = """\
-Uso:
-  multiagentx                  abre o chat
-  multiagentx "tarefa"         executa uma tarefa e sai
-  multiagentx init             cria a config sem chaves
+Usage:
+  multiagentx                 open the chat
+  multiagentx "task"          run one task and exit
+  multiagentx init            write a config file with no secrets
 
-Dentro do chat:
-  /modelo                      mostra o modelo e o âmbito
-  /modelo local
-  /modelo claude tudo|orquestrador|principal
-  /modelo openrouter tudo|orquestrador|principal
-  /engenheiro tarefa           manda a tarefa ao agente principal
-  /sair
+In the chat:
+  /model                      show the current key scope
+  /model local
+  /model all
+  /model orchestrator
+  /model principal
+  /engineer <task>            send the task straight to the principal
+  /exit
 """
 
-_SCOPES = {"tudo", "orquestrador", "principal"}
+_REMOTE_SCOPES = {"all", "orchestrator", "principal"}
 
 
 class Runtime:
@@ -146,42 +147,49 @@ def run_line(runtime: Runtime, line: str) -> str:
 
 def interpret(line: str, session: Session, config: AppConfig) -> tuple[str, str, bool]:
     text = line.strip()
-    if text == "/sair":
+    if text in {"/exit", "/quit"}:
         return ("exit", "", False)
-    if text == "/modelo":
+    if text == "/model":
         return ("reply", describe_session(session, config), False)
-    if text.startswith("/modelo "):
-        return ("reply", apply_model_command(text[len("/modelo ") :].strip(), session), False)
-    if text == "/engenheiro":
-        return ("reply", "Usa /engenheiro seguido da tarefa.", False)
-    if text.startswith("/engenheiro "):
-        return ("task", text[len("/engenheiro ") :].strip(), True)
+    if text.startswith("/model "):
+        return ("reply", apply_model_command(text[len("/model ") :].strip(), session, config), False)
+    if text == "/engineer":
+        return ("reply", "Use /engineer followed by the task.", False)
+    if text.startswith("/engineer "):
+        return ("task", text[len("/engineer ") :].strip(), True)
     return ("task", text, False)
 
 
-def apply_model_command(argument: str, session: Session) -> str:
+def apply_model_command(argument: str, session: Session, config: AppConfig | None = None) -> str:
     parts = argument.split()
-    if len(parts) == 1 and parts[0] == "local":
+    scope = normalize_scope(parts[0]) if len(parts) == 1 else None
+    if scope == "local":
         session.provider = "local"
         session.scope = "local"
-        return "Modelo da sessão: local."
-    if len(parts) == 2 and parts[0] in {"claude", "openrouter"} and parts[1] in _SCOPES:
-        session.provider = "anthropic" if parts[0] == "claude" else "openrouter"
-        session.scope = parts[1]
-        return f"Modelo da sessão: {parts[0]}, âmbito {parts[1]}."
+        return "Session: local."
+    if scope in _REMOTE_SCOPES:
+        session.provider = None
+        session.scope = scope
+        provider = config.routing.remote_provider if config is not None else "remote"
+        return f"Session: {provider}, scope {scope}."
+    if len(parts) == 2 and parts[0] in PROVIDERS:
+        chosen = normalize_scope(parts[1])
+        if chosen in _REMOTE_SCOPES:
+            session.provider = parts[0]
+            session.scope = chosen
+            return f"Session: {parts[0]}, scope {chosen}."
     return (
-        "Usa /modelo local, /modelo claude tudo, /modelo claude orquestrador, "
-        "/modelo claude principal, ou o mesmo com openrouter."
+        "Use /model local, /model all, /model orchestrator, or /model principal. "
+        "The scope applies to the remote key in the config."
     )
 
 
 def describe_session(session: Session, config: AppConfig) -> str:
     scope = session.scope_name(config)
     if scope == "local":
-        return "Modelo da sessão: local."
+        return "Session: local."
     provider = session.provider_name(config)
-    label = "claude" if provider == "anthropic" else provider
-    return f"Modelo da sessão: {label}, âmbito {scope}."
+    return f"Session: {provider}, scope {scope}."
 
 
 def trim_history(history: list[dict], max_chars: int) -> list[dict]:

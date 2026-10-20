@@ -155,7 +155,7 @@ def test_remote_scopes_send_the_analysis_to_the_key():
         used.append(text)
         return "principal trata do que falta"
 
-    for scope in ("orquestrador", "tudo"):
+    for scope in ("orchestrator", "all"):
         steps, called = _plan(
             "comparar as duas opções de cache",
             scope=scope,
@@ -207,7 +207,7 @@ def test_orchestrator_scope_does_not_widen_the_key():
     result = execute_plan(
         [steps_only()],
         "tarefa",
-        scope="orquestrador",
+        scope="orchestrator",
         worker_ready=False,
         blocked_reason="Memória livre abaixo de 700 MB. O modelo local não arranca.",
         summarize=lambda *_args: "nao",

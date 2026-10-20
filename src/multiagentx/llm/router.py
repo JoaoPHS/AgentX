@@ -28,9 +28,9 @@ class Session:
 
 
 def role_uses_remote(scope: str, role: str) -> bool:
-    if scope == "tudo":
+    if scope == "all":
         return True
-    if scope == "orquestrador":
+    if scope == "orchestrator":
         return role == "orquestrador"
     if scope == "principal":
         return role == "principal"

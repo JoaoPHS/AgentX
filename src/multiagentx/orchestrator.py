@@ -178,7 +178,7 @@ def build_plan(
 
 
 def can_analyze(scope: str, local_ready: bool, remote_ready: bool) -> bool:
-    if scope in {"orquestrador", "tudo"}:
+    if scope in {"orchestrator", "all"}:
         return remote_ready
     return local_ready
 
@@ -269,7 +269,7 @@ def execute_plan(
     on_token=None,
     status=None,
 ) -> str:
-    if scope == "orquestrador" and not worker_ready:
+    if scope == "orchestrator" and not worker_ready:
         return blocked_reason or "O modelo local não está disponível para executar a tarefa."
     if scope == "principal" and not worker_ready and any(step.kind != "principal" for step in steps):
         steps = [Step("principal", brief=message.strip())]

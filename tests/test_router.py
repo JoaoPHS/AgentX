@@ -65,9 +65,9 @@ def _router(scope, *, local_reason=None, remote_reason=None, provider="anthropic
 
 def test_scope_matrix():
     assert role_uses_remote("local", "principal") is False
-    assert role_uses_remote("tudo", "subagente") is True
-    assert role_uses_remote("orquestrador", "orquestrador") is True
-    assert role_uses_remote("orquestrador", "principal") is False
+    assert role_uses_remote("all", "subagente") is True
+    assert role_uses_remote("orchestrator", "orquestrador") is True
+    assert role_uses_remote("orchestrator", "principal") is False
     assert role_uses_remote("principal", "principal") is True
     assert role_uses_remote("principal", "subagente") is False
 
@@ -80,16 +80,16 @@ def test_local_scope_ignores_the_key():
     assert local.starts == 3
 
 
-def test_tudo_uses_the_key_and_does_not_start_the_server():
-    router, local, remote = _router("tudo")
+def test_all_uses_the_key_and_does_not_start_the_server():
+    router, local, remote = _router("all")
     for role in ("orquestrador", "subagente", "principal"):
         assert router.complete(role, [{"role": "user", "content": "oi"}]) == "remoto"
     assert local.starts == 0
     assert len(remote.calls) == 3
 
 
-def test_orquestrador_scope_is_only_the_analysis():
-    router, local, remote = _router("orquestrador")
+def test_orchestrator_scope_is_only_the_analysis():
+    router, local, remote = _router("orchestrator")
     assert router.complete("orquestrador", []) == "remoto"
     assert router.complete("principal", []) == "local"
     assert router.complete("subagente", []) == "local"
@@ -109,7 +109,7 @@ def test_principal_scope_keeps_routines_local_and_folds_when_local_is_down():
 
 
 def test_missing_key_is_not_replaced_by_the_other_provider():
-    router, _local, _remote = _router("tudo", remote_reason="Falta a chave Claude.")
+    router, _local, _remote = _router("all", remote_reason="Falta a chave Claude.")
     with pytest.raises(MultiAgentXError, match="Claude"):
         router.complete("principal", [])
 
@@ -117,15 +117,18 @@ def test_missing_key_is_not_replaced_by_the_other_provider():
 def test_session_commands_do_not_persist_secrets():
     session = Session()
     config = AppConfig()
+    config.routing.remote_provider = "anthropic"
     config.anthropic.api_key = "sk-ant-secret"
-    assert apply_model_command("claude orquestrador", session) == (
-        "Modelo da sessão: claude, âmbito orquestrador."
+    assert apply_model_command("orchestrator", session, config) == (
+        "Session: anthropic, scope orchestrator."
     )
-    assert session.scope_name(config) == "orquestrador"
+    assert session.scope_name(config) == "orchestrator"
+    assert session.provider is None
     assert "sk-ant-secret" not in describe_session(session, config)
-    assert apply_model_command("local", session) == "Modelo da sessão: local."
-    assert describe_session(session, config) == "Modelo da sessão: local."
-    assert "Usa /modelo" in apply_model_command("claude", session)
+    assert "claude" not in describe_session(session, config)
+    assert apply_model_command("local", session, config) == "Session: local."
+    assert describe_session(session, config) == "Session: local."
+    assert "/model" in apply_model_command("claude", session, config)
 
 
 def test_server_command_stays_on_loopback():

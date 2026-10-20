@@ -10,12 +10,20 @@ from pathlib import Path
 
 from multiagentx.errors import MultiAgentXError
 
-SCOPES = ("local", "tudo", "orquestrador", "principal")
+SCOPES = ("local", "all", "orchestrator", "principal")
 PROVIDERS = ("openrouter", "anthropic")
+_SCOPE_ALIASES = {
+    "local": "local",
+    "all": "all",
+    "tudo": "all",
+    "orchestrator": "orchestrator",
+    "orquestrador": "orchestrator",
+    "principal": "principal",
+}
 
 TEMPLATE = """\
-# Permissões recomendadas: 600.
-# Chaves: OPENROUTER_API_KEY, ANTHROPIC_API_KEY, ou api_key nas secções.
+# Recommended permissions: 600.
+# Keys: OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or api_key in the sections.
 
 [local]
 model_path = ""
@@ -26,9 +34,9 @@ context = 2048
 idle_seconds = 120
 
 [routing]
-# openrouter ou anthropic
+# openrouter or anthropic. The scope applies to whichever key you set.
 remote_provider = "anthropic"
-# local, tudo, orquestrador ou principal
+# local, all, orchestrator, or principal
 remote_scope = "local"
 
 [openrouter]
@@ -266,15 +274,21 @@ def _apply_env(config: AppConfig) -> None:
         config.anthropic.api_key = anthropic
 
 
+def normalize_scope(value: str) -> str | None:
+    return _SCOPE_ALIASES.get(value.strip().casefold())
+
+
 def _validate(config: AppConfig) -> None:
     if config.routing.remote_provider not in PROVIDERS:
         raise MultiAgentXError(
-            "Provider remoto desconhecido. Usa openrouter ou anthropic."
+            "Unknown remote provider. Use openrouter or anthropic."
         )
-    if config.routing.remote_scope not in SCOPES:
+    scope = normalize_scope(config.routing.remote_scope)
+    if scope is None:
         raise MultiAgentXError(
-            "Âmbito da chave desconhecido. Usa local, tudo, orquestrador ou principal."
+            "Unknown key scope. Use local, all, orchestrator, or principal."
         )
+    config.routing.remote_scope = scope
 
 
 def _table(raw: dict, name: str) -> dict:

@@ -46,7 +46,8 @@ def test_invalid_scope_hides_secret(tmp_path):
     )
     with pytest.raises(MultiAgentXError) as caught:
         load_config(path)
-    assert "Âmbito" in str(caught.value)
+    assert "Âmbito" not in str(caught.value)
+    assert "scope" in str(caught.value).lower() or "Unknown" in str(caught.value)
     assert SECRET not in str(caught.value)
 
 
@@ -77,4 +78,4 @@ def test_env_config_path(tmp_path, monkeypatch):
     from multiagentx.config import default_config_path
 
     assert default_config_path() == Path(path)
-    assert load_config().routing.remote_scope == "tudo"
+    assert load_config().routing.remote_scope == "all"
