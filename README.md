@@ -27,8 +27,6 @@ agentx "show a toast that the backup finished"
 
 ## Changes
 
-## Changes
-
 The command is `agentx`. The old `multiagentx` command is gone. `agentx init` writes `~/.config/agentx/config.toml`, and installed scripts live in `~/.config/agentx/scripts`. Running init again keeps that file and the scripts folder.
 
 - **Phone scripts.** Drop a Python file in that scripts folder, run `agentx script examples`, or install a community script with `agentx script install toast`. A public gist works too. Phrases and regular expressions in the script docstring match the request, so the wording does not have to be the keyword. A clear match runs that file and does not spend a model call.
