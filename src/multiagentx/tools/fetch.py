@@ -1,0 +1,207 @@
+"""Descarga limitada e extração de artigo."""
+
+from __future__ import annotations
+
+import ipaddress
+import re
+import socket
+from dataclasses import dataclass
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
+
+import httpx
+
+from multiagentx.config import FetchSettings
+from multiagentx.errors import MultiAgentXError
+
+_SKIP_TAGS = {"script", "style", "noscript", "nav", "footer"}
+_PREFERRED_TAGS = {"article", "main"}
+
+
+@dataclass(frozen=True)
+class Page:
+    url: str
+    text: str
+    truncated: bool
+
+
+def default_resolve(hostname: str, port: int) -> list[str]:
+    infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    return [item[4][0] for item in infos]
+
+
+def check_url(url: str, resolve=default_resolve) -> None:
+    parts = urlsplit(url)
+    if parts.scheme not in {"http", "https"}:
+        raise MultiAgentXError("O URL tem de ser http ou https.")
+    if parts.username is not None or parts.password is not None:
+        raise MultiAgentXError("O URL não pode incluir utilizador ou senha.")
+    host = parts.hostname
+    if not host:
+        raise MultiAgentXError("O URL está bloqueado.")
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        addresses = _addresses(host, port, resolve)
+    except OSError as exc:
+        raise MultiAgentXError("Não foi possível resolver o URL.") from exc
+    if not addresses or any(_blocked(ip) for ip in addresses):
+        raise MultiAgentXError("O URL está bloqueado.")
+
+
+def download(
+    url: str,
+    *,
+    settings: FetchSettings | None = None,
+    resolve=default_resolve,
+    transport: httpx.BaseTransport | None = None,
+) -> Page:
+    options = settings or FetchSettings()
+    current = url
+    redirects = 0
+    with httpx.Client(
+        transport=transport,
+        trust_env=False,
+        follow_redirects=False,
+        timeout=options.timeout_seconds,
+        headers={"User-Agent": "multiagentx"},
+    ) as client:
+        while True:
+            check_url(current, resolve)
+            with client.stream("GET", current) as response:
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise MultiAgentXError("A página respondeu com um redirecionamento vazio.")
+                    redirects += 1
+                    if redirects > options.max_redirects:
+                        raise MultiAgentXError("Demasiados redirecionamentos.")
+                    current = urljoin(current, location)
+                    continue
+                if response.status_code >= 400:
+                    raise MultiAgentXError(
+                        f"A página respondeu com o código {response.status_code}."
+                    )
+                raw, truncated = _read_limited(response, options.max_bytes)
+                content_type = response.headers.get("content-type", "")
+            break
+    if not _looks_like_text(content_type, raw):
+        raise MultiAgentXError("Só consigo extrair páginas HTML.")
+    html = raw.decode("utf-8", errors="replace")
+    return Page(url=current, text=extract_article(html), truncated=truncated)
+
+
+def extract_article(html: str) -> str:
+    try:
+        import trafilatura
+    except ImportError:
+        return extract_with_parser(html)
+    extracted = trafilatura.extract(
+        html,
+        include_comments=False,
+        include_tables=False,
+    )
+    if extracted and extracted.strip():
+        return extracted.strip()
+    return extract_with_parser(html)
+
+
+def extract_with_parser(html: str) -> str:
+    parser = _ArticleParser()
+    parser.feed(html)
+    parser.close()
+    preferred = _clean(parser.preferred)
+    if preferred:
+        return preferred
+    return _clean(parser.all_text)
+
+
+def excerpt(text: str, limit: int = 4000) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n\n[texto cortado]"
+
+
+class _ArticleParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.skip_depth = 0
+        self.preferred_depth = 0
+        self.all_text: list[str] = []
+        self.preferred: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        name = tag.lower()
+        if name in _SKIP_TAGS:
+            self.skip_depth += 1
+        if name in _PREFERRED_TAGS:
+            self.preferred_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        name = tag.lower()
+        if name in _SKIP_TAGS and self.skip_depth:
+            self.skip_depth -= 1
+        if name in _PREFERRED_TAGS and self.preferred_depth:
+            self.preferred_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self.skip_depth:
+            return
+        text = data.strip()
+        if not text:
+            return
+        self.all_text.append(text)
+        if self.preferred_depth:
+            self.preferred.append(text)
+
+
+def _addresses(host: str, port: int, resolve) -> list[str]:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return [str(item) for item in resolve(host, port)]
+    return [host]
+
+
+def _blocked(ip: str) -> bool:
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return not address.is_global
+
+
+def _read_limited(response: httpx.Response, max_bytes: int) -> tuple[bytes, bool]:
+    chunks: list[bytes] = []
+    size = 0
+    truncated = False
+    for chunk in response.iter_bytes():
+        if not chunk:
+            continue
+        remaining = max_bytes - size
+        if remaining <= 0:
+            truncated = True
+            break
+        if len(chunk) > remaining:
+            chunks.append(chunk[:remaining])
+            truncated = True
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+    return b"".join(chunks), truncated
+
+
+def _looks_like_text(content_type: str, raw: bytes) -> bool:
+    kind = content_type.lower()
+    if "html" in kind or kind.startswith("text/") or "xml" in kind or "json" in kind:
+        return True
+    if not kind or "octet-stream" in kind:
+        sample = raw.lstrip()[:1]
+        return sample in {b"<", b"{", b"["} or not raw
+    return False
+
+
+def _clean(parts: list[str]) -> str:
+    text = "\n".join(parts)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
