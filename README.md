@@ -65,14 +65,20 @@ flowchart TD
   rules -->|whole request is a routine| routine[Subagent]
   rules -->|mixed or open task| analyze[Short analysis]
   analyze --> plan[At most three steps]
+  analyze --> router[Router]
   plan --> phoneScript
   plan --> routine
-  plan --> mainAgent[Main agent]
-  routine --> router[Router]
+  plan -->|"allowed tool, client on"| mcpClient[MCP client]
+  mcpClient -->|stdio| droid[DroidMCP]
+  droid -->|tool text| mainAgent[Main agent]
+  plan --> mainAgent
+  routine --> router
   mainAgent --> router
   router --> local[llama-server or Ollama]
   router --> remote[Your API key, only in the scope you chose]
 ```
+
+A matching script and a routine that already covers the whole request do not start DroidMCP. The MCP client runs only after the short analysis, and only when that plan names a tool from `mcp.tools`. The tool text comes back to the main agent. DroidMCP itself does not call the router.
 
 ## Install on Termux
 
@@ -235,8 +241,8 @@ At most 12 files are included. Each file contributes at most 8 KB. The whole exc
 
 The orchestrator does not answer you. It splits the task so a larger model only sees what a routine cannot finish.
 
-1. If the whole message is already a routine, no model is spent on routing. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, rewrite, and a short "what is" go to `quick_answer`. A request that clearly names one installed script goes to `run_script`. A condition or a refusal, such as `but`, `if`, `not`, or `don't`, does not run a script. On scope `all` or `main`, that ambiguous request is not sent to the remote key by a weak rule.
-2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Routines run first. The main agent, if needed, is last and receives the routine output instead of redoing the fetch or the summary.
+1. If the whole message is already a routine, no model is spent on routing. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, rewrite, and a short "what is" go to `quick_answer`. A request that clearly names one installed script goes to `run_script`. These paths do not start DroidMCP. A condition or a refusal, such as `but`, `if`, `not`, or `don't`, does not run a script. On scope `all` or `main`, that ambiguous request is not sent to the remote key by a weak rule.
+2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Routines run first. This analysis is the only place that can add a DroidMCP step, and only for a name listed in `mcp.tools` while the client is on. The main agent, if needed, is last and receives the routine output and the tool text instead of redoing the fetch, the summary, or the tool call.
 3. With scope `orchestrator` or `all`, that analysis uses your remote key. With `local` or `main`, it uses the local model. If the orchestrator has no model, keyword rules choose the path. Another key is not spent just to decide.
 
 `/engineer` followed by the task skips analysis and sends the whole task to the main agent.
