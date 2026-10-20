@@ -7,7 +7,7 @@ from collections.abc import Iterable, Iterator
 
 import httpx
 
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 
 TRUNCATION_NOTE = "The reply reached the token limit."
 
@@ -34,7 +34,7 @@ def stream_chat(
                     response.iter_lines(), inspect_openai_line, on_token=on_token
                 )
     except httpx.HTTPError as exc:
-        raise MultiAgentXError(
+        raise AgentXError(
             "The remote model failed." if remote else "The local model failed."
         ) from exc
 
@@ -118,10 +118,10 @@ def raise_for_status(status: int, *, remote: bool, model: str = "") -> None:
     if status < 400:
         return
     if remote and status in {401, 403}:
-        raise MultiAgentXError("The key was rejected.")
+        raise AgentXError("The key was rejected.")
     if remote and status == 404:
-        raise MultiAgentXError(remote_model_rejected(model))
-    raise MultiAgentXError("The remote model failed." if remote else "The local model failed.")
+        raise AgentXError(remote_model_rejected(model))
+    raise AgentXError("The remote model failed." if remote else "The local model failed.")
 
 
 def _sse_payload(line: str, *, allow_done: bool) -> dict | None:

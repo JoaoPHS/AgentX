@@ -9,7 +9,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 
 SCOPES = ("local", "all", "orchestrator", "main")
 PROVIDERS = ("openrouter", "anthropic", "openai")
@@ -221,9 +221,9 @@ def load_config(path: Path | None = None) -> AppConfig:
         try:
             raw = tomllib.loads(text)
         except tomllib.TOMLDecodeError as exc:
-            raise MultiAgentXError(format_toml_parse_error(exc, text)) from exc
+            raise AgentXError(format_toml_parse_error(exc, text)) from exc
         if not isinstance(raw, dict):
-            raise MultiAgentXError("The config file is not valid TOML.")
+            raise AgentXError("The config file is not valid TOML.")
         _apply(config, raw)
     _apply_env(config)
     _validate(config)
@@ -237,7 +237,7 @@ def provider_settings(config: AppConfig, name: str) -> ProviderSettings:
         return config.anthropic
     if name == "openai":
         return config.openai
-    raise MultiAgentXError(_unknown_provider())
+    raise AgentXError(_unknown_provider())
 
 
 def _warn_permissions(path: Path) -> None:
@@ -317,7 +317,7 @@ def _apply(config: AppConfig, raw: dict) -> None:
     else:
         chosen = normalize_language(raw_language)
         if chosen is None:
-            raise MultiAgentXError("Unknown language. Use en or pt-BR.")
+            raise AgentXError("Unknown language. Use en or pt-BR.")
         config.language = chosen
 
     context = _table(raw, "context")
@@ -385,13 +385,13 @@ def _validate(config: AppConfig) -> None:
     if not provider:
         provider = "llama"
     if provider not in LOCAL_PROVIDERS:
-        raise MultiAgentXError(_unknown_local_provider())
+        raise AgentXError(_unknown_local_provider())
     config.local.provider = provider
     if config.routing.remote_provider not in PROVIDERS:
-        raise MultiAgentXError(_unknown_provider())
+        raise AgentXError(_unknown_provider())
     scope = normalize_scope(config.routing.remote_scope)
     if scope is None:
-        raise MultiAgentXError(
+        raise AgentXError(
             "Unknown key scope. Use local, all, orchestrator, or main."
         )
     config.routing.remote_scope = scope
@@ -402,7 +402,7 @@ def _table(raw: dict, name: str) -> dict:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise MultiAgentXError(f"The config section {name} is malformed.")
+        raise AgentXError(f"The config section {name} is malformed.")
     return value
 
 
@@ -411,7 +411,7 @@ def _str(table: dict, key: str, default: str) -> str:
         return default
     value = table[key]
     if not isinstance(value, str):
-        raise MultiAgentXError(f"The config value {key} must be text.")
+        raise AgentXError(f"The config value {key} must be text.")
     return value
 
 
@@ -420,7 +420,7 @@ def _int(table: dict, key: str, default: int) -> int:
         return default
     value = table[key]
     if isinstance(value, bool) or not isinstance(value, int):
-        raise MultiAgentXError(f"The config value {key} must be an integer.")
+        raise AgentXError(f"The config value {key} must be an integer.")
     return value
 
 
@@ -431,7 +431,7 @@ def _provider_max_tokens(table: dict, default: int) -> int:
     if value is None or value == "":
         return default
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise MultiAgentXError("The config value max_tokens must be a positive integer.")
+        raise AgentXError("The config value max_tokens must be a positive integer.")
     return value
 
 
@@ -493,7 +493,7 @@ def save_config_values(config: AppConfig, sections: dict[str, dict[str, str]]) -
             current = config.path.read_text(encoding="utf-8") if config.path.is_file() else TEMPLATE
             _write_private(config.path, _patch_toml(current, sections))
         except OSError as exc:
-            raise MultiAgentXError("Could not write the config file.") from exc
+            raise AgentXError("Could not write the config file.") from exc
     routing = sections.get("routing", {})
     if "remote_scope" in routing:
         config.routing.remote_scope = routing["remote_scope"]

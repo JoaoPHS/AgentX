@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 
 _ID = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _KEYWORDS = re.compile(r"^keywords:\s*(.*)$", re.IGNORECASE)
@@ -91,7 +91,7 @@ def add_script(directory: Path, source: Path) -> Path:
     try:
         text = source.read_text(encoding="utf-8")
     except OSError as exc:
-        raise MultiAgentXError("Could not read the script.") from exc
+        raise AgentXError("Could not read the script.") from exc
     return install_text(directory, source.name, text)
 
 
@@ -113,23 +113,23 @@ def install_examples(directory: Path) -> list[str]:
 def install_text(directory: Path, filename: str, text: str) -> Path:
     script_id = Path(filename).stem.casefold()
     if _ID.fullmatch(script_id) is None:
-        raise MultiAgentXError("Use a short script name: letters, digits, and underscores.")
+        raise AgentXError("Use a short script name: letters, digits, and underscores.")
     try:
         tree = ast.parse(text)
     except SyntaxError as exc:
-        raise MultiAgentXError("The script is not valid Python.") from exc
+        raise AgentXError("The script is not valid Python.") from exc
     if not (ast.get_docstring(tree) or "").strip():
-        raise MultiAgentXError("Add a docstring that says what the script does.")
+        raise AgentXError("Add a docstring that says what the script does.")
     if not _match_line(ast.get_docstring(tree) or ""):
-        raise MultiAgentXError(
+        raise AgentXError(
             "Add a keywords or patterns line to the docstring, such as: keywords: toast, popup"
         )
     directory.mkdir(parents=True, exist_ok=True)
     destination = (directory / f"{script_id}.py").resolve()
     if destination.parent != directory.resolve():
-        raise MultiAgentXError("The script name is not allowed.")
+        raise AgentXError("The script name is not allowed.")
     if destination.exists():
-        raise MultiAgentXError(f"Script {script_id} already exists.")
+        raise AgentXError(f"Script {script_id} already exists.")
     payload = text if text.endswith("\n") else text + "\n"
     fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:

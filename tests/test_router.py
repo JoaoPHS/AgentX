@@ -4,7 +4,7 @@ import pytest
 
 from agentx.cli import apply_model_command, describe_session
 from agentx.config import AppConfig
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.local import build_server_command
 from agentx.llm.openai_http import parse_anthropic_line, parse_openai_line
 from agentx.llm.router import Router, Session, role_uses_remote
@@ -137,7 +137,7 @@ def test_main_scope_keeps_routines_local_and_folds_when_local_is_down():
     assert router.block_reason("main") is None
     assert router.block_reason("subagent") == "low memory"
     assert router.complete("main", []) == "remote"
-    with pytest.raises(MultiAgentXError, match="low memory"):
+    with pytest.raises(AgentXError, match="low memory"):
         router.complete("subagent", [])
     assert local.starts == 0
     assert len(remote.calls) == 1
@@ -145,7 +145,7 @@ def test_main_scope_keeps_routines_local_and_folds_when_local_is_down():
 
 def test_missing_key_is_not_replaced_by_the_other_provider():
     router, _local, _remote = _router("all", remote_reason="Missing the Anthropic key.")
-    with pytest.raises(MultiAgentXError, match="Anthropic"):
+    with pytest.raises(AgentXError, match="Anthropic"):
         router.complete("main", [])
 
 

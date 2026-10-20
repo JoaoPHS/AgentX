@@ -11,7 +11,7 @@ from agentx.cli import (
     main,
 )
 from agentx.config import LimitSettings, init_config, load_config
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.router import Session
 
 SECRET = "sk-ant-secret"
@@ -186,7 +186,7 @@ def test_language_is_saved_and_unknown_values_do_not_write(tmp_path):
     )
     try:
         load_config(path)
-    except MultiAgentXError as exc:
+    except AgentXError as exc:
         assert "Unknown language" in str(exc)
         assert SECRET not in str(exc)
     else:

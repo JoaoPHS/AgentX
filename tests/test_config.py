@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from agentx.config import init_config, load_config
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 
 SECRET = "sk-ant-secret"
 
@@ -44,7 +44,7 @@ def test_invalid_scope_hides_secret(tmp_path):
         f'[routing]\nremote_scope = "both"\n[anthropic]\napi_key = "{SECRET}"\n',
         encoding="utf-8",
     )
-    with pytest.raises(MultiAgentXError) as caught:
+    with pytest.raises(AgentXError) as caught:
         load_config(path)
     assert "Unknown key scope" in str(caught.value)
     assert SECRET not in str(caught.value)
@@ -125,7 +125,7 @@ def test_unknown_local_provider(tmp_path):
         f'[local]\nprovider = "vllm"\n[anthropic]\napi_key = "{SECRET}"\n',
         encoding="utf-8",
     )
-    with pytest.raises(MultiAgentXError) as caught:
+    with pytest.raises(AgentXError) as caught:
         load_config(path)
     assert "Unknown local provider" in str(caught.value)
     assert SECRET not in str(caught.value)
@@ -147,7 +147,7 @@ def test_local_provider_alias_and_ollama_defaults(tmp_path):
 def test_invalid_toml_names_the_line(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text('[routing]\nremote_scope = "local\n', encoding="utf-8")
-    with pytest.raises(MultiAgentXError) as caught:
+    with pytest.raises(AgentXError) as caught:
         load_config(path)
     message = str(caught.value)
     assert "line" in message
@@ -168,12 +168,12 @@ def test_provider_max_tokens_default_and_invalid(tmp_path):
         f'[openai]\nmax_tokens = 0\n[anthropic]\napi_key = "{SECRET}"\n',
         encoding="utf-8",
     )
-    with pytest.raises(MultiAgentXError, match="positive integer") as caught:
+    with pytest.raises(AgentXError, match="positive integer") as caught:
         load_config(path)
     assert SECRET not in str(caught.value)
 
     path.write_text('[openai]\nmax_tokens = "lots"\n', encoding="utf-8")
-    with pytest.raises(MultiAgentXError, match="positive integer"):
+    with pytest.raises(AgentXError, match="positive integer"):
         load_config(path)
 
 

@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from agentx.config import AppConfig, LocalSettings
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.local import LocalServer, loopback_http_url
 from agentx.llm.router import Router, Session
 from agentx.resources.governor import LocalDecision
@@ -146,7 +146,7 @@ def test_ollama_respects_governor_and_does_not_spawn(monkeypatch):
     reason = server.possible()
     assert reason is not None
     assert "700" in reason
-    with pytest.raises(MultiAgentXError, match="700"):
+    with pytest.raises(AgentXError, match="700"):
         server.ensure_running()
 
 

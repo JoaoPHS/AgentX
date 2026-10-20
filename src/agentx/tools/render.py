@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Protocol
 
 from agentx.config import FetchSettings
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.tools.fetch import (
     Page,
     check_url,
@@ -87,7 +87,7 @@ def render_page(
         max_redirects=options.max_redirects,
     )
     if not isinstance(document, RenderedDocument):
-        raise MultiAgentXError(BROWSER_RENDER_FAILED)
+        raise AgentXError(BROWSER_RENDER_FAILED)
     guard(document.url)
     html, truncated = clip_html(document.html, options.max_bytes)
     text = extract_article(html)
@@ -110,7 +110,7 @@ def decide_route(url: str, *, document: bool, guard) -> str:
     """
     try:
         guard(url)
-    except MultiAgentXError:
+    except AgentXError:
         if document:
             raise
         return "abort"
@@ -123,12 +123,12 @@ def handle_browser_route(route, *, guard, max_redirects: int, state: dict) -> No
     if document:
         state["documents"] += 1
         if state["documents"] > max_redirects + 1:
-            state["blocked"].append(MultiAgentXError("Too many redirects."))
+            state["blocked"].append(AgentXError("Too many redirects."))
             route.abort()
             return
     try:
         action = decide_route(route.request.url, document=document, guard=guard)
-    except MultiAgentXError as exc:
+    except AgentXError as exc:
         state["blocked"].append(exc)
         route.abort()
         return
@@ -198,7 +198,7 @@ class PlaywrightRenderer:
                         )
                         if settle_ms:
                             page.wait_for_timeout(settle_ms)
-                    except MultiAgentXError:
+                    except AgentXError:
                         raise
                     except Exception:
                         if state["blocked"]:
@@ -211,10 +211,10 @@ class PlaywrightRenderer:
                     html, _truncated = clip_html(page.content(), max_bytes)
                 finally:
                     browser.close()
-        except MultiAgentXError:
+        except AgentXError:
             raise
         except Exception as exc:
-            raise MultiAgentXError(BROWSER_RENDER_FAILED) from exc
+            raise AgentXError(BROWSER_RENDER_FAILED) from exc
         return RenderedDocument(url=final_url, html=html)
 
 

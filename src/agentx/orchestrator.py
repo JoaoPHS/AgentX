@@ -19,7 +19,7 @@ from agentx.automation.catalog import (
 from agentx.automation.runner import run_script
 from agentx.config import answer_instruction
 from agentx.context import attach_folder_context, folder_context_for
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.tools.fetch import download
 
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
@@ -36,6 +36,11 @@ _TASK_WORDS = (
     "implement",
 )
 _SUMMARY_WORDS = ("summarize", "summary", "tldr")
+_DEFINITION = ("what is", "what does", "o que e", "o que significa")
+_CAUTION = re.compile(
+    r"\b(?:but|if|unless|dont|nao|mas|se|caso|nunca|sem)\b|do not|somente se|don't"
+)
+AMBIGUOUS = "The request is ambiguous, so it was not sent."
 
 ANALYSIS_SYSTEM = (
     "Do not answer the user. Split the task across the cheapest worker that can finish each part. "
@@ -178,7 +183,7 @@ class Orchestrator:
     def _timeout(self) -> float:
         remaining = self._deadline - time.monotonic()
         if remaining <= 0:
-            raise MultiAgentXError("The request timed out.")
+            raise AgentXError("The request timed out.")
         return remaining
 
 
@@ -195,15 +200,23 @@ def build_plan(
 ) -> tuple[list[Step], bool]:
     if force_main:
         return [Step("main", brief=message.strip())], False
-    direct = direct_plan(message, scripts)
-    if direct is not None:
-        return direct, False
+    cautious = is_cautious(message)
+    if not cautious:
+        direct = direct_plan(message, scripts)
+        if direct is not None:
+            return direct, False
     if can_analyze(scope, local_ready, remote_ready):
         parsed = parse_delegation(analyze(message), max_delegations=max_delegations)
+        if cautious and parsed:
+            parsed = [step for step in parsed if step.kind != "run_script"]
         if parsed:
             return parsed, True
-        return fallback_plan(message, max_delegations=max_delegations, scripts=scripts), True
-    return fallback_plan(message, max_delegations=max_delegations, scripts=scripts), False
+        return _after_rules(
+            message, scope=scope, max_delegations=max_delegations, scripts=scripts, cautious=cautious
+        ), True
+    return _after_rules(
+        message, scope=scope, max_delegations=max_delegations, scripts=scripts, cautious=cautious
+    ), False
 
 
 def can_analyze(scope: str, local_ready: bool, remote_ready: bool) -> bool:
@@ -237,13 +250,34 @@ def summary_target(message: str) -> str | None:
     return None
 
 
+def is_cautious(message: str) -> bool:
+    return _CAUTION.search(fold(message)) is not None
+
+
 def is_short_request(message: str) -> bool:
     if len(message) > 400:
         return False
     folded = fold(message)
-    if _has_task(folded):
+    if _has_task(folded) or is_cautious(message):
         return False
-    return "what is" in folded or _SHORT.search(folded) is not None
+    if any(phrase in folded for phrase in _DEFINITION):
+        return True
+    return _SHORT.search(folded) is not None
+
+
+def _after_rules(
+    message: str,
+    *,
+    scope: str,
+    max_delegations: int,
+    scripts,
+    cautious: bool,
+) -> list[Step]:
+    if cautious:
+        if scope in {"all", "main"}:
+            return [Step("refuse", brief=AMBIGUOUS)]
+        return [Step("main", brief=message.strip())]
+    return fallback_plan(message, max_delegations=max_delegations, scripts=scripts)
 
 
 def fallback_plan(message: str, *, max_delegations: int = 3, scripts=()) -> list[Step]:
@@ -311,7 +345,7 @@ def execute_plan(
     on_token=None,
     status=None,
 ) -> str:
-    needs_model = any(step.kind != "run_script" for step in steps)
+    needs_model = any(step.kind not in {"run_script", "refuse"} for step in steps)
     if scope == "orchestrator" and not worker_ready and needs_model:
         return blocked_reason or "The local model is not available to run the task."
     script_only = bool(steps) and all(step.kind == "run_script" for step in steps)
@@ -329,6 +363,9 @@ def execute_plan(
             collected.append(result)
         elif step.kind == "quick_answer":
             result = quick(step.brief or message.strip(), token)
+            collected.append(result)
+        elif step.kind == "refuse":
+            result = step.brief or AMBIGUOUS
             collected.append(result)
         elif step.kind == "run_script":
             if not last and status:

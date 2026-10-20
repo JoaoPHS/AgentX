@@ -10,8 +10,8 @@ from agentx.automation.catalog import (
     load_catalog,
 )
 from agentx.automation.runner import run_script, script_path_is_inside
-from agentx.errors import MultiAgentXError
-from agentx.orchestrator import Step, build_plan, execute_plan, parse_delegation
+from agentx.errors import AgentXError
+from agentx.orchestrator import AMBIGUOUS, Step, build_plan, execute_plan, parse_delegation
 
 TOAST = '''"""Show a short toast on the phone.
 
@@ -101,6 +101,16 @@ def test_phrase_patterns_match_without_the_keyword(tmp_path):
     )
     assert called is False
     assert planning[0].kind == "main"
+    question, called = _plan("o que é um toast", scripts)
+    assert called is False
+    assert question[0].kind == "quick_answer"
+    blocked, called = _plan("não dispare o toast", scripts, local_ready=False)
+    assert called is False
+    assert blocked[0].kind == "main"
+    assert blocked[0].kind != "run_script"
+    conflict, called = _plan("show a toast but do not notify", scripts, local_ready=False)
+    assert called is False
+    assert conflict[0].kind == "main"
 
 
 def test_analysis_can_name_a_script_and_the_plan_runs_it():
@@ -136,11 +146,11 @@ def test_add_script_requires_keywords_and_refuses_a_second_copy(tmp_path):
     destination = add_script(tmp_path / "scripts", source)
     assert destination.name == "toast.py"
     assert "toast" in load_catalog(destination.parent)[0].keywords
-    with pytest.raises(MultiAgentXError, match="already exists"):
+    with pytest.raises(AgentXError, match="already exists"):
         add_script(tmp_path / "scripts", source)
     bare = tmp_path / "bare.py"
     bare.write_text("print(1)\n", encoding="utf-8")
-    with pytest.raises(MultiAgentXError, match="docstring"):
+    with pytest.raises(AgentXError, match="docstring"):
         add_script(tmp_path / "scripts", bare)
 
 

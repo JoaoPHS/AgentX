@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 
 from agentx.config import AppConfig, ProviderSettings, provider_settings
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.openai_http import (
     consume_sse_lines,
     inspect_anthropic_line,
@@ -54,7 +54,7 @@ class RemoteClient:
     ) -> str:
         reason = self.block_reason()
         if reason:
-            raise MultiAgentXError(reason)
+            raise AgentXError(reason)
         name = self.provider_name()
         settings = provider_settings(self.config, name)
         cap = self.output_cap(max_tokens)
@@ -128,10 +128,10 @@ class RemoteClient:
                     return consume_sse_lines(
                         response.iter_lines(), inspect_anthropic_line, on_token=on_token
                     )
-        except MultiAgentXError:
+        except AgentXError:
             raise
         except httpx.HTTPError as exc:
-            raise MultiAgentXError("The remote model failed.") from exc
+            raise AgentXError("The remote model failed.") from exc
 
 
 def _split_system(messages: list[dict]) -> tuple[str, list[dict]]:

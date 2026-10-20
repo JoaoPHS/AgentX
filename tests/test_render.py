@@ -4,7 +4,7 @@ import pytest
 
 from agentx.agents.subagents import summarize_url
 from agentx.config import FetchSettings, LimitSettings
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.tools.fetch import Page, check_url
 from agentx.tools.render import (
     BROWSER_EXTRA_MISSING,
@@ -90,19 +90,19 @@ def test_render_rejects_unsafe_urls_before_the_renderer_runs():
         called.append(url)
         return RenderedDocument(url, ARTICLE)
 
-    with pytest.raises(MultiAgentXError, match="blocked"):
+    with pytest.raises(AgentXError, match="blocked"):
         render_page(
             "http://intranet.example/a",
             resolve=lambda _host, _port: ["10.1.2.3"],
             renderer=fake,
         )
-    with pytest.raises(MultiAgentXError, match="password"):
+    with pytest.raises(AgentXError, match="password"):
         render_page(
             "http://user:pass@example.com/a",
             resolve=_public,
             renderer=fake,
         )
-    with pytest.raises(MultiAgentXError, match="http or https"):
+    with pytest.raises(AgentXError, match="http or https"):
         render_page("file:///tmp/page.html", resolve=_public, renderer=fake)
     assert called == []
 
@@ -111,7 +111,7 @@ def test_render_rechecks_the_final_url_and_redirects():
     def skips_guard(url, **_kwargs):
         return RenderedDocument("http://10.0.0.1/secret", "<article>secret</article>")
 
-    with pytest.raises(MultiAgentXError, match="blocked"):
+    with pytest.raises(AgentXError, match="blocked"):
         render_page("https://example.com/app", resolve=_public, renderer=skips_guard)
 
     def follows_private(url, *, guard, **_kwargs):
@@ -119,7 +119,7 @@ def test_render_rechecks_the_final_url_and_redirects():
         guard("http://10.0.0.1/secret")
         return RenderedDocument(url, "<article>secret</article>")
 
-    with pytest.raises(MultiAgentXError, match="blocked"):
+    with pytest.raises(AgentXError, match="blocked"):
         render_page(
             "https://example.com/app",
             resolve=_public,
@@ -203,7 +203,7 @@ def test_playwright_renderer_blocks_a_private_redirect_and_closes():
         "<article>secret</article>",
     )
     renderer = PlaywrightRenderer(factory)
-    with pytest.raises(MultiAgentXError, match="blocked"):
+    with pytest.raises(AgentXError, match="blocked"):
         renderer.render(
             "https://example.com/app",
             guard=_guard,
@@ -227,7 +227,7 @@ def test_playwright_launch_failure_is_not_a_summary():
             return False
 
     renderer = PlaywrightRenderer(lambda: Broken())
-    with pytest.raises(MultiAgentXError, match="could not render") as caught:
+    with pytest.raises(AgentXError, match="could not render") as caught:
         renderer.render(
             "https://example.com/app",
             guard=_guard,
@@ -305,7 +305,7 @@ def test_summarize_reports_a_renderer_failure_without_calling_the_model():
     router = _Router()
 
     def fake(url, **_kwargs):
-        raise MultiAgentXError(BROWSER_RENDER_FAILED)
+        raise AgentXError(BROWSER_RENDER_FAILED)
 
     text = _summarize(_shell_page(), router=router, renderer=fake)
     assert router.calls == []
@@ -317,7 +317,7 @@ def test_summarize_blocks_a_private_shell_before_rendering():
         raise AssertionError("renderer should not run")
 
     page = _shell_page(url="http://10.0.0.1/secret", text="")
-    with pytest.raises(MultiAgentXError, match="blocked"):
+    with pytest.raises(AgentXError, match="blocked"):
         _summarize(page, renderer=fake)
 
 

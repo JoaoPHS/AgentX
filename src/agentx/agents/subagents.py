@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from agentx.config import FetchSettings, LimitSettings, answer_instruction
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.router import token_budget
 from agentx.tools.fetch import Page
 from agentx.tools.render import (
@@ -142,7 +142,7 @@ def _render_script_page(page: Page, renderer):
     )
     try:
         rendered = render_page(page.url, settings=settings, renderer=renderer)
-    except MultiAgentXError as exc:
+    except AgentXError as exc:
         if str(exc) == BROWSER_RENDER_FAILED:
             return _script_notice(page.text, BROWSER_RENDER_FAILED)
         raise

@@ -3,6 +3,7 @@ import pytest
 from agentx.agents.subagents import summarize_url
 from agentx.config import LimitSettings
 from agentx.orchestrator import (
+    AMBIGUOUS,
     build_plan,
     execute_plan,
     parse_delegation,
@@ -166,6 +167,27 @@ def test_remote_scopes_send_the_analysis_to_the_key():
         assert called is True
         assert steps[0].kind == "main"
     assert len(used) == 2
+
+
+def test_cautious_requests_do_not_run_a_script_or_call_remote():
+    def analyze(_text):
+        return "sub run_script toast"
+
+    steps, called = _plan("não dispare o toast", scope="all", remote_ready=True, analyze=analyze)
+    assert called is True
+    assert steps[0].kind == "refuse"
+    assert steps[0].brief == AMBIGUOUS
+    offline, called = _plan(
+        "show a toast but do not notify",
+        scope="main",
+        local_ready=False,
+        remote_ready=True,
+    )
+    assert called is False
+    assert offline[0].kind == "refuse"
+    local, called = _plan("nao dispare o toast se estiver quente", scope="local", local_ready=False)
+    assert called is False
+    assert local[0].kind == "main"
 
 
 def test_engineer_command_skips_analysis():

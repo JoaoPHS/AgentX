@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from agentx.config import FetchSettings
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.tools.fetch import (
     check_url,
     download,
@@ -54,13 +54,13 @@ def test_blocks_private_and_link_local_before_download():
         return httpx.Response(200, text="<article>no</article>")
 
     transport = httpx.MockTransport(handler)
-    with pytest.raises(MultiAgentXError, match="blocked"):
+    with pytest.raises(AgentXError, match="blocked"):
         download(
             "http://intranet.example/a",
             resolve=lambda _host, _port: ["10.1.2.3"],
             transport=transport,
         )
-    with pytest.raises(MultiAgentXError, match="blocked"):
+    with pytest.raises(AgentXError, match="blocked"):
         download(
             "http://link.example/a",
             resolve=lambda _host, _port: ["169.254.1.1"],
@@ -75,7 +75,7 @@ def test_redirect_to_private_ip_is_blocked():
             return httpx.Response(302, headers={"location": "http://10.0.0.1/secret"})
         return httpx.Response(200, text="<article>secret</article>")
 
-    with pytest.raises(MultiAgentXError, match="blocked"):
+    with pytest.raises(AgentXError, match="blocked"):
         download(
             "http://example.com/article",
             resolve=_public,
@@ -84,7 +84,7 @@ def test_redirect_to_private_ip_is_blocked():
 
 
 def test_userinfo_is_rejected():
-    with pytest.raises(MultiAgentXError, match="password"):
+    with pytest.raises(AgentXError, match="password"):
         check_url("http://user:pass@example.com/a", resolve=_public)
 
 

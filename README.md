@@ -1,8 +1,31 @@
-# MultiAgentX
+# AgentX
 
-Run tasks from Termux. One Python process takes the request. An orchestrator decides what the work needs, then hands each part to the cheapest worker that can finish it.
+Run one task from Termux. AgentX picks a phone script, a local model, or a remote key, and does not start a crowd of agents.
 
-This is a task runner. A page is fetched only when the task needs that text.
+```text
+$ agentx "show a toast that the backup finished"
+Toast shown.
+```
+
+That line is what the installed `toast` script prints after `agentx script examples`. The script calls `termux-toast` when that command exists. No benchmark numbers are published yet.
+
+## Start here
+
+Python 3.11 or newer. Termux is the intended phone. The same package runs on any machine with that Python.
+
+```bash
+pip install .
+agentx init
+agentx doctor
+agentx script examples
+agentx "show a toast that the backup finished"
+```
+
+- A local model is optional. Use `llama-server` with a GGUF file, or Ollama on `127.0.0.1:11434`.
+- A remote key is optional: OpenRouter, Anthropic, or OpenAI. Scope `all` does not need a local file.
+- JavaScript pages need the optional extra: `pip install 'agentx[browser]'`. AgentX does not download a browser.
+
+## Changes
 
 ## Changes
 
@@ -15,9 +38,9 @@ The command is `agentx`. The old `multiagentx` command is gone. `agentx init` wr
 - **Saved preferences.** `/model` writes the scope, provider, and model id into the config. `/key`, or `agentx key`, stores a provider key and does not print it. `/language` stores `en` or `pt-BR`. The next launch restores them. `agentx init` does not replace an existing config or delete the scripts folder.
 - **Folder context.** One task can read a single matching folder, add a short excerpt to that turn, and drop the excerpt when the turn ends.
 - **Language.** Answer text follows the saved language. Commands, tool lines, and errors stay English.
-- **Remote model ids.** OpenRouter, OpenAI, and Anthropic model ids are free strings. A slug such as `meta-llama/llama-3.2-3b-instruct:free` is saved and sent as-is, including the `:free` suffix. A 404 means that provider rejected the id, not that agentx has a fixed list.
-- **Ollama.** `[local] provider = "ollama"` talks to a local Ollama server on loopback instead of starting llama-server. Set `local.model`, or run `/model ollama qwen2.5:1.5b`. agentx does not download or pull the model. llama-server remains the default.
-- **Remote token cap.** Each of `[openrouter]`, `[anthropic]`, and `[openai]` has an editable `max_tokens` (default 1024). Long remote replies use that cap. Orchestrator analysis stays at 80 tokens and `quick_answer` keeps its small cap. If a stream stops because it hit the limit (`finish_reason=length` or Anthropic `stop_reason=max_tokens`), the reply ends with `The reply reached the token limit.` agentx does not spend a second paid call to continue.
+- **Remote model ids.** OpenRouter, OpenAI, and Anthropic model ids are free strings. A slug such as `meta-llama/llama-3.2-3b-instruct:free` is saved and sent as-is, including the `:free` suffix. A 404 means that provider rejected the id, not that AgentX has a fixed list.
+- **Ollama.** `[local] provider = "ollama"` talks to a local Ollama server on loopback instead of starting llama-server. Set `local.model`, or run `/model ollama qwen2.5:1.5b`. AgentX does not download or pull the model. llama-server remains the default.
+- **Remote token cap.** Each of `[openrouter]`, `[anthropic]`, and `[openai]` has an editable `max_tokens` (default 1024). Long remote replies use that cap. Orchestrator analysis stays at 80 tokens and `quick_answer` keeps its small cap. If a stream stops because it hit the limit (`finish_reason=length` or Anthropic `stop_reason=max_tokens`), the reply ends with `The reply reached the token limit.` AgentX does not spend a second paid call to continue.
 - **Config doctor.** `agentx doctor` checks the same config file (`MULTIAGENTX_CONFIG` or `~/.config/agentx/config.toml`). A missing file or broken TOML fails with a line number. It never prints keys, never starts llama-server, and never calls a remote API.
 
 ```toml
@@ -33,11 +56,11 @@ agentx "compare two ways to validate a form"
 agentx "write a shell function that backs up a directory"
 ```
 
-There is no graphical interface. The default local model is a separate `llama-server` process. It starts for a request and exits after it sits idle, so the phone does not keep the weights in RAM. With `[local] provider = "ollama"`, agentx does not start llama-server and talks to Ollama on loopback instead.
+There is no graphical interface. The default local model is a separate `llama-server` process. It starts for a request and exits after it sits idle, so the phone does not keep the weights in RAM. With `[local] provider = "ollama"`, AgentX does not start llama-server and talks to Ollama on loopback instead.
 
 ```mermaid
 flowchart TD
-  cli[CLI agentx] --> rules[Rules without a model]
+  cli[CLI AgentX] --> rules[Rules without a model]
   rules -->|matching script| phoneScript[Installed Python script]
   rules -->|whole request is a routine| routine[Subagent]
   rules -->|mixed or open task| analyze[Short analysis]
@@ -81,7 +104,7 @@ The binary is `build/bin/llama-server`. Put it on `PATH`, or set `local.binary` 
 
 For a modest phone, use **Qwen2.5-1.5B-Instruct**, GGUF **Q4_K_M**. Download the file yourself and put its path in the config. The app does not fetch the GGUF.
 
-To use Ollama instead, install and start Ollama yourself, pull a model with `ollama pull`, then set `[local] provider = "ollama"` and `local.model` to that name. `/model ollama qwen2.5:1.5b` saves the same fields. agentx does not run `ollama pull`. The Ollama URL must be `127.0.0.1` or `localhost`.
+To use Ollama instead, install and start Ollama yourself, pull a model with `ollama pull`, then set `[local] provider = "ollama"` and `local.model` to that name. `/model ollama qwen2.5:1.5b` saves the same fields. AgentX does not run `ollama pull`. The Ollama URL must be `127.0.0.1` or `localhost`.
 
 ## Configuration
 
@@ -122,7 +145,7 @@ model = ""
 max_tokens = 1024
 ```
 
-The remote model id stays in the config. There is no fixed slug in the code. Each provider calls whichever model its key can use, including OpenRouter free ids that end in `:free`. If the remote API returns 404, agentx reports that the API did not accept that id. The commands below do not pick a vendor. They only choose where the configured key is allowed to run.
+The remote model id stays in the config. There is no fixed slug in the code. Each provider calls whichever model its key can use, including OpenRouter free ids that end in `:free`. If the remote API returns 404, AgentX reports that the API did not accept that id. The commands below do not pick a vendor. They only choose where the configured key is allowed to run.
 
 | Scope | Where the key is used |
 | --- | --- |
@@ -148,7 +171,7 @@ local.model_path: OK
 
 ## Saved preferences
 
-`/model` updates the current session and writes the same choice into `config.toml`. `/model local`, `/model all`, `/model orchestrator`, and `/model main` save the scope. `/model openai main` also saves the provider. `/model openai gpt-4o-mini` saves that provider and model id. `/model ollama qwen2.5:1.5b` saves the local Ollama provider and name; it is not a remote cloud provider. The next `agentx` process reads them back.
+`/model` updates the current session and writes the same choice into `config.toml`. `/model local`, `/model all`, `/model orchestrator`, and `/model main` save the scope. `/model openai main` also saves the provider. `/model openai gpt-4o-mini` saves that provider and model id. `/model ollama qwen2.5:1.5b` saves the local Ollama provider and name; it is not a remote cloud provider. The next AgentX process reads them back.
 
 `/language` prints `en` or `pt-BR`. `/language en` and `/language pt-BR` switch the answer language and save it. `pt` and `pt_BR` are stored as `pt-BR`. An unknown value prints an error and leaves the file unchanged. Answer text uses "Answer in English." or "Answer in Brazilian Portuguese." Commands, script ids, tool lines, and errors stay English.
 
@@ -176,9 +199,9 @@ agentx script install toast
 agentx script install https://gist.github.com/owner/gistid
 ```
 
-`script examples` copies three Termux helpers that ship with agentx: a toast, a notification, and a battery reading. They call `termux-toast`, `termux-notification`, and `termux-battery-status`.
+`script examples` copies three Termux helpers that ship with AgentX: a toast, a notification, and a battery reading. They call `termux-toast`, `termux-notification`, and `termux-battery-status`.
 
-`script install NAME` reads a community index and saves that one Python file. The default index is the script list in this repository. A public gist URL, or `gist:ID`, installs the Python file from that gist. If the gist has several Python files, add the file name. Install only saves the file. It does not run it. Downloads stay on HTTPS, reject private addresses, and accept only GitHub hosts plus the host of your index. Set `scripts.index_url` when you want a different community index.
+`script install NAME` reads a community index and can save that one Python file. The default index is the script list in this repository. A public gist URL, or `gist:ID`, offers the Python file from that gist. If the gist has several Python files, add the file name. Before anything is written, AgentX prints the source URL, the SHA-256, and a reminder that installing does not mean the script is safe. Confirm with `y` at a terminal, or pass `--yes`. Without one of those, the file is not saved. Install does not run the script. Downloads stay on HTTPS, reject private addresses, and accept only GitHub hosts plus the host of your index. Set `scripts.index_url` when you want a different community index.
 
 A script needs a docstring with `keywords`, `patterns`, or both. The file name is the id the orchestrator uses. A pattern is a phrase or a regular expression. Words in a phrase may have a few words between them, so `manda aviso` matches `manda um aviso` and `me notifica` matches `me notifica de que o backup acabou`. That match does not call a model.
 
@@ -194,7 +217,7 @@ The task text is the first argument. Print the result to stdout. In chat, `/scri
 
 ## On-demand folder context
 
-Some tasks need the text of one folder. agentx chooses that folder for the current turn, reads only the files inside it, and adds a short excerpt to the prompt that answers the task. The excerpt is dropped when the turn ends. It is not written to the config, a cache, or the session.
+Some tasks need the text of one folder. AgentX chooses that folder for the current turn, reads only the files inside it, and adds a short excerpt to the prompt that answers the task. The excerpt is dropped when the turn ends. It is not written to the config, a cache, or the session.
 
 The folder is chosen in this order, and the search stops at the first hit:
 
@@ -202,7 +225,7 @@ The folder is chosen in this order, and the search stops at the first hit:
 2. An installed script whose id or keyword matches a word in the message, such as backup. Only that script file is included, unless the same name is a subdirectory.
 3. A child directory of the working directory or of the scripts directory whose name matches a word in the message.
 
-If nothing matches, the task runs as usual and no excerpt is added. agentx does not walk the home directory or the rest of the disk, and it does not call an embedding model.
+If nothing matches, the task runs as usual and no excerpt is added. AgentX does not walk the home directory or the rest of the disk, and it does not call an embedding model.
 
 At most 12 files are included. Each file contributes at most 8 KB. The whole excerpt stays within 6000 characters. Binary files are skipped, as are secrets such as `.env`, key files, and credentials. Python and other text files are kept.
 
@@ -212,13 +235,13 @@ At most 12 files are included. Each file contributes at most 8 KB. The whole exc
 
 The orchestrator does not answer you. It splits the task so a larger model only sees what a routine cannot finish.
 
-1. If the whole message is already a routine, no model is spent on routing. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, and rewrite go to `quick_answer`. A request that clearly names one installed script goes to `run_script`.
+1. If the whole message is already a routine, no model is spent on routing. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, rewrite, and a short "what is" (including `o que é`) go to `quick_answer`. A request that clearly names one installed script goes to `run_script`. A condition or a refusal, such as `but`, `if`, `não`, or `mas`, does not run a script. On scope `all` or `main`, that ambiguous request is not sent to the remote key by a weak rule.
 2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Routines run first. The main agent, if needed, is last and receives the routine output instead of redoing the fetch or the summary.
 3. With scope `orchestrator` or `all`, that analysis uses your remote key. With `local` or `main`, it uses the local model. If the orchestrator has no model, keyword rules choose the path. Another key is not spent just to decide.
 
 `/engineer` followed by the task skips analysis and sends the whole task to the main agent.
 
-The llama-server process listens only on `127.0.0.1`. Before it loads the model, agentx reads `MemAvailable` from `/proc/meminfo` and refuses to start below 700 MB. Threads are half the cores, capped at 2. If `termux-battery-status` exists and the battery is under 20% while unplugged, it drops to 1 thread and a context of 1024. It also reads CPU thermal zones under `/sys/class/thermal`. At 70 C it uses that same lighter limit. At 85 C it pauses generation until the phone cools down. If the sensors cannot be read, heat is ignored. The process runs at low priority. After 120 seconds without use it is stopped. One generation runs at a time. Ollama uses the same 700 MB and 85 C checks and does not start llama-server.
+The llama-server process listens only on `127.0.0.1`. Before it loads the model, AgentX reads `MemAvailable` from `/proc/meminfo` and refuses to start below 700 MB. Threads are half the cores, capped at 2. If `termux-battery-status` exists and the battery is under 20% while unplugged, it drops to 1 thread and a context of 1024. It also reads CPU thermal zones under `/sys/class/thermal`. At 70 C it uses that same lighter limit. At 85 C it pauses generation until the phone cools down. If the sensors cannot be read, heat is ignored. The process runs at low priority. After 120 seconds without use it is stopped. One generation runs at a time. Ollama uses the same 700 MB and 85 C checks and does not start llama-server.
 
 Page downloads stop at 2 MB, time out, and reject URLs that resolve to private or link-local addresses. That static download is the default for `summarize_url`.
 
@@ -232,7 +255,7 @@ If the extract is empty, or the page is only a script shell such as a `noscript`
 pip install 'agentx[browser]'
 ```
 
-Install a browser runtime yourself if you want rendering. MultiAgentX does not download one and does not shell out to install one. On Termux a desktop browser often is not available. In that case, or when the extra is missing, you get the static text and a short note that the page looks script-rendered. That note is not a summary.
+Install a browser runtime yourself if you want rendering. AgentX does not download one and does not shell out to install one. On Termux a desktop browser often is not available. In that case, or when the extra is missing, you get the static text and a short note that the page looks script-rendered. That note is not a summary.
 
 This fallback is only for `summarize_url`. It is not a graphical browser, and other tasks do not start it.
 

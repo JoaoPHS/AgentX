@@ -12,7 +12,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from agentx.config import FetchSettings
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 
 _SKIP_TAGS = {"script", "style", "noscript", "nav", "footer"}
 _PREFERRED_TAGS = {"article", "main"}
@@ -50,19 +50,19 @@ def default_resolve(hostname: str, port: int) -> list[str]:
 def check_url(url: str, resolve=default_resolve) -> None:
     parts = urlsplit(url)
     if parts.scheme not in {"http", "https"}:
-        raise MultiAgentXError("The URL must be http or https.")
+        raise AgentXError("The URL must be http or https.")
     if parts.username is not None or parts.password is not None:
-        raise MultiAgentXError("The URL cannot include a username or password.")
+        raise AgentXError("The URL cannot include a username or password.")
     host = parts.hostname
     if not host:
-        raise MultiAgentXError("The URL is blocked.")
+        raise AgentXError("The URL is blocked.")
     port = parts.port or (443 if parts.scheme == "https" else 80)
     try:
         addresses = _addresses(host, port, resolve)
     except OSError as exc:
-        raise MultiAgentXError("Could not resolve the URL.") from exc
+        raise AgentXError("Could not resolve the URL.") from exc
     if not addresses or any(_blocked(ip) for ip in addresses):
-        raise MultiAgentXError("The URL is blocked.")
+        raise AgentXError("The URL is blocked.")
 
 
 def download(
@@ -88,21 +88,21 @@ def download(
                 if response.status_code in {301, 302, 303, 307, 308}:
                     location = response.headers.get("location")
                     if not location:
-                        raise MultiAgentXError("The page returned an empty redirect.")
+                        raise AgentXError("The page returned an empty redirect.")
                     redirects += 1
                     if redirects > options.max_redirects:
-                        raise MultiAgentXError("Too many redirects.")
+                        raise AgentXError("Too many redirects.")
                     current = urljoin(current, location)
                     continue
                 if response.status_code >= 400:
-                    raise MultiAgentXError(
+                    raise AgentXError(
                         f"The page returned status {response.status_code}."
                     )
                 raw, truncated = _read_limited(response, options.max_bytes)
                 content_type = response.headers.get("content-type", "")
             break
     if not _looks_like_text(content_type, raw):
-        raise MultiAgentXError("Only HTML pages can be extracted.")
+        raise AgentXError("Only HTML pages can be extracted.")
     html = raw.decode("utf-8", errors="replace")
     text = extract_article(html)
     return Page(

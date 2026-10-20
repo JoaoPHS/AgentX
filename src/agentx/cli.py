@@ -18,17 +18,18 @@ from agentx.config import (
     save_config_values,
 )
 from agentx.doctor import doctor_command
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.local import LocalServer
 from agentx.llm.remote import RemoteClient
 from agentx.llm.router import Router, Session
 from agentx.automation.catalog import (
     add_script,
     install_examples,
+    install_text,
     load_catalog,
     scripts_dir,
 )
-from agentx.automation.registry import install_gist, install_named, is_gist_target
+from agentx.automation.registry import is_gist_target, stage_gist, stage_named
 from agentx.orchestrator import Orchestrator
 from agentx.resources.governor import Governor
 
@@ -41,7 +42,7 @@ Usage:
   agentx key PROVIDER KEY save a provider key in the config
   agentx script list     list installed automation scripts
   agentx script add FILE copy a Python script into the script directory
-  agentx script install NAME install a community script, or a public gist URL
+  agentx script install NAME [--yes] install a community script, or a public gist URL
   agentx script examples install the mobile examples
 
 In the chat:
@@ -90,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
             destination = default_config_path()
             existed = destination.exists()
             path = init_config(destination)
-        except MultiAgentXError as exc:
+        except AgentXError as exc:
             _report(exc)
             return 1
         if existed:
@@ -106,20 +107,20 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] == "key":
         try:
             config = load_config()
-        except MultiAgentXError as exc:
+        except AgentXError as exc:
             _report(exc)
             return 1
         return key_command(config, args[1:])
     if args and args[0] == "script":
         try:
             config = load_config()
-        except MultiAgentXError as exc:
+        except AgentXError as exc:
             _report(exc)
             return 1
         return script_command(config, args[1:])
     try:
         config = load_config()
-    except MultiAgentXError as exc:
+    except AgentXError as exc:
         _report(exc)
         return 1
     runtime = build_runtime(config)
@@ -184,7 +185,7 @@ def run_line(runtime: Runtime, line: str) -> str:
             on_token=on_token,
             status=status,
         )
-    except MultiAgentXError as exc:
+    except AgentXError as exc:
         _report(exc)
         return "error"
     except Exception:
@@ -341,7 +342,7 @@ def _save_model(
 def _save_sections(config: AppConfig, sections: dict[str, dict[str, str]]) -> str | None:
     try:
         save_config_values(config, sections)
-    except MultiAgentXError as exc:
+    except AgentXError as exc:
         return str(exc)
     return None
 
@@ -362,7 +363,7 @@ def script_command(config: AppConfig, args: list[str]) -> int:
     if args == ["examples"]:
         try:
             installed = install_examples(directory)
-        except MultiAgentXError as exc:
+        except AgentXError as exc:
             _report(exc)
             return 1
         if installed:
@@ -373,19 +374,22 @@ def script_command(config: AppConfig, args: list[str]) -> int:
     if len(args) == 2 and args[0] == "add":
         try:
             destination = add_script(directory, Path(args[1]))
-        except MultiAgentXError as exc:
+        except AgentXError as exc:
             _report(exc)
             return 1
         print(f"Script written to {destination}")
         return 0
-    if args and args[0] == "install" and len(args) in {2, 3}:
-        try:
-            destination = _install_remote(config, directory, args[1], args[2] if len(args) == 3 else None)
-        except MultiAgentXError as exc:
-            _report(exc)
-            return 1
-        print(f"Script written to {destination}")
-        return 0
+    if args and args[0] == "install":
+        yes = "--yes" in args
+        positional = [arg for arg in args[1:] if arg != "--yes"]
+        if len(positional) in {1, 2}:
+            return _install_remote(
+                config,
+                directory,
+                positional[0],
+                positional[1] if len(positional) == 2 else None,
+                yes=yes,
+            )
     print(
         "Use script list, script add FILE, script install NAME, or script examples.",
         file=sys.stderr,
@@ -393,12 +397,47 @@ def script_command(config: AppConfig, args: list[str]) -> int:
     return 1
 
 
-def _install_remote(config: AppConfig, directory: Path, target: str, filename: str | None) -> Path:
-    if is_gist_target(target):
-        return install_gist(target, directory, filename)
-    if filename:
-        raise MultiAgentXError("A file name is only used with a gist.")
-    return install_named(target, directory, index_url=config.scripts.index_url)
+def _install_remote(
+    config: AppConfig,
+    directory: Path,
+    target: str,
+    filename: str | None,
+    *,
+    yes: bool,
+) -> int:
+    try:
+        if is_gist_target(target):
+            offer = stage_gist(target, filename)
+        else:
+            if filename:
+                raise AgentXError("A file name is only used with a gist.")
+            offer = stage_named(target, index_url=config.scripts.index_url)
+    except AgentXError as exc:
+        _report(exc)
+        return 1
+    print(offer.report())
+    if not _accept_install(yes):
+        print("Script not installed.", file=sys.stderr)
+        return 1
+    try:
+        destination = install_text(directory, offer.filename, offer.text)
+    except AgentXError as exc:
+        _report(exc)
+        return 1
+    print(f"Script written to {destination}")
+    return 0
+
+
+def _accept_install(yes: bool) -> bool:
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        return False
+    try:
+        answer = input("Install this script? [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().casefold() in {"y", "yes"}
 
 
 def _script_list(config: AppConfig) -> str:
@@ -435,7 +474,7 @@ def _utf8_stdio() -> None:
             continue
 
 
-def _report(exc: MultiAgentXError) -> None:
+def _report(exc: AgentXError) -> None:
     print(str(exc), file=sys.stderr)
     if os.environ.get("MULTIAGENTX_DEBUG") == "1":
         traceback.print_exc()

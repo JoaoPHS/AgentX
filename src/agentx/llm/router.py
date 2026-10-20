@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from agentx.config import AppConfig
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 
 ROLES = ("orchestrator", "subagent", "main")
 
@@ -86,7 +86,7 @@ class Router:
     ) -> str:
         reason = self.block_reason(role)
         if reason:
-            raise MultiAgentXError(reason)
+            raise AgentXError(reason)
         if self.uses_remote(role):
             with self.governor.lock:
                 return self.remote.complete(

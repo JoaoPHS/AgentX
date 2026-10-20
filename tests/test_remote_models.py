@@ -6,7 +6,7 @@ import pytest
 
 from agentx.agents.main_agent import run_main
 from agentx.config import AppConfig, LimitSettings, PROVIDERS
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.openai_http import (
     TRUNCATION_NOTE,
     consume_sse_lines,
@@ -99,7 +99,7 @@ def test_free_slug_is_sent_as_is(monkeypatch):
 def test_remote_404_mentions_the_model_id(monkeypatch):
     captured = {}
     _install_client(monkeypatch, captured, status=404)
-    with pytest.raises(MultiAgentXError) as caught:
+    with pytest.raises(AgentXError) as caught:
         _openrouter_client().complete(
             [{"role": "user", "content": "hi"}],
             max_tokens=8,
@@ -124,7 +124,7 @@ def test_empty_model_fails_before_http(monkeypatch):
     reason = client.block_reason()
     assert reason is not None
     assert "model id" in reason
-    with pytest.raises(MultiAgentXError, match="model id"):
+    with pytest.raises(AgentXError, match="model id"):
         client.complete(
             [{"role": "user", "content": "hi"}],
             max_tokens=8,
@@ -134,16 +134,16 @@ def test_empty_model_fails_before_http(monkeypatch):
 
 
 def test_raise_for_status_404_is_not_an_enum_rejection():
-    with pytest.raises(MultiAgentXError) as caught:
+    with pytest.raises(AgentXError) as caught:
         raise_for_status(404, remote=True, model=FREE_SLUG)
     text = str(caught.value)
     assert text == remote_model_rejected(FREE_SLUG)
     assert FREE_SLUG in text
     assert "The remote model was not found." not in text
     raise_for_status(200, remote=True, model=FREE_SLUG)
-    with pytest.raises(MultiAgentXError, match="The key was rejected"):
+    with pytest.raises(AgentXError, match="The key was rejected"):
         raise_for_status(401, remote=True, model=FREE_SLUG)
-    with pytest.raises(MultiAgentXError, match="The remote model failed"):
+    with pytest.raises(AgentXError, match="The remote model failed"):
         raise_for_status(500, remote=True, model=FREE_SLUG)
 
 

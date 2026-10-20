@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import httpx
 
 from agentx.config import LocalSettings
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.openai_http import stream_chat
 from agentx.resources.governor import Governor
 
@@ -103,7 +103,7 @@ class LocalServer:
     def ensure_running(self) -> None:
         reason = self.possible()
         if reason:
-            raise MultiAgentXError(reason)
+            raise AgentXError(reason)
         if self.settings.provider == "ollama":
             return
         decision = self.governor.assess(default_context=self.settings.context)
@@ -132,7 +132,7 @@ class LocalServer:
             self.ensure_running()
             base = loopback_http_url(self.settings.base_url)
             if base is None:
-                raise MultiAgentXError(
+                raise AgentXError(
                     "The Ollama base URL must use 127.0.0.1 or localhost."
                 )
             return stream_chat(
@@ -232,7 +232,7 @@ class LocalServer:
         while time.monotonic() < deadline:
             proc = self._proc
             if proc is not None and proc.poll() is not None:
-                raise MultiAgentXError("Could not start llama-server.")
+                raise AgentXError("Could not start llama-server.")
             try:
                 response = httpx.get(url, timeout=2, trust_env=False)
                 if response.status_code == 200:
@@ -241,7 +241,7 @@ class LocalServer:
                 pass
             time.sleep(0.3)
         self._stop_locked()
-        raise MultiAgentXError("llama-server did not become ready in time.")
+        raise AgentXError("llama-server did not become ready in time.")
 
     def _stop_locked(self) -> None:
         self._cancel_timer_locked()

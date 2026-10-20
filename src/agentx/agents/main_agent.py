@@ -8,7 +8,7 @@ import re
 from agentx.agents.subagents import summarize_url
 from agentx.config import answer_instruction
 from agentx.context import attach_folder_context
-from agentx.errors import MultiAgentXError
+from agentx.errors import AgentXError
 from agentx.llm.router import token_budget
 from agentx.tools.fetch import excerpt
 
@@ -150,7 +150,7 @@ def _run_tool(
             timeout=timeout,
             language=language,
         )
-    except MultiAgentXError as exc:
+    except AgentXError as exc:
         return str(exc)
 
 
