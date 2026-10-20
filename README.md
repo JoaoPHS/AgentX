@@ -4,6 +4,14 @@ Run tasks from Termux. One Python process takes the request. An orchestrator dec
 
 This is a task runner. A page is fetched only when the task needs that text.
 
+## Changes
+
+The command is `agentx`. The old `multiagentx` command is gone. `agentx init` writes `~/.config/agentx/config.toml`, and installed scripts live in `~/.config/agentx/scripts`.
+
+- **Phone scripts.** Drop a Python file in that scripts folder, or run `agentx script examples`. If the request clearly matches one script, the orchestrator runs that file and does not spend a model call.
+- **JavaScript pages.** `summarize_url` still starts with a plain download. If the page is empty or only a script shell, an optional browser extra can render it once. Without that extra, you get the static text and a short note, not a made-up summary.
+- **OpenAI.** `OPENAI_API_KEY` is a provider next to OpenRouter and Anthropic. Set `remote_provider = "openai"` and choose the scope with `/model openai main`, `/model openai all`, or `/model openai orchestrator`.
+
 ```text
 agentx "plan a script that reads a CSV and writes a summary"
 agentx "compare two ways to validate a form"
@@ -14,10 +22,12 @@ There is no graphical interface. The local model is a separate `llama-server` pr
 
 ```mermaid
 flowchart TD
-  cli[CLI] --> rules[Rules without a model]
+  cli[CLI agentx] --> rules[Rules without a model]
+  rules -->|matching script| phoneScript[Installed Python script]
   rules -->|whole request is a routine| routine[Subagent]
   rules -->|mixed or open task| analyze[Short analysis]
   analyze --> plan[At most three steps]
+  plan --> phoneScript
   plan --> routine
   plan --> mainAgent[Main agent]
   routine --> router[Router]
@@ -104,7 +114,7 @@ Point `MULTIAGENTX_CONFIG` at another file when you need one.
 
 ## Mobile scripts
 
-Put a Python file in the script directory when a task should run on the phone instead of going to a model. The orchestrator reads the docstring and runs the one script that matches the request. It does not run a file outside that directory.
+Put a Python file in `~/.config/agentx/scripts` when a task should run on the phone instead of going to a model. The orchestrator reads the docstring and runs the one script that matches the request. It does not run a file outside that directory.
 
 ```bash
 agentx script examples
