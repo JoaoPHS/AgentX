@@ -2,12 +2,12 @@ import threading
 
 import pytest
 
-from multiagentx.cli import apply_model_command, describe_session
-from multiagentx.config import AppConfig
-from multiagentx.errors import MultiAgentXError
-from multiagentx.llm.local import build_server_command
-from multiagentx.llm.openai_http import parse_anthropic_line, parse_openai_line
-from multiagentx.llm.router import Router, Session, role_uses_remote
+from agentx.cli import apply_model_command, describe_session
+from agentx.config import AppConfig
+from agentx.errors import MultiAgentXError
+from agentx.llm.local import build_server_command
+from agentx.llm.openai_http import parse_anthropic_line, parse_openai_line
+from agentx.llm.router import Router, Session, role_uses_remote
 
 
 class Governor:

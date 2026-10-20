@@ -1,4 +1,4 @@
-from multiagentx.cli import main
+from agentx.cli import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

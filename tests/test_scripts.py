@@ -1,0 +1,166 @@
+import subprocess
+from types import SimpleNamespace
+
+import pytest
+
+from agentx.automation.catalog import (
+    add_script,
+    choose_script,
+    install_examples,
+    load_catalog,
+)
+from agentx.automation.runner import run_script, script_path_is_inside
+from agentx.errors import MultiAgentXError
+from agentx.orchestrator import Step, build_plan, execute_plan, parse_delegation
+
+TOAST = '''"""Show a short toast on the phone.
+
+keywords: toast, popup
+"""
+print("toast")
+'''
+
+NOTIFY = '''"""Show a notification on the phone.
+
+keywords: notification, notify, alert
+"""
+print("notify")
+'''
+
+
+def _write(directory, name, text):
+    path = directory / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _plan(message, scripts, *, analyze=None, local_ready=True):
+    def explode(_text):
+        raise AssertionError("analysis should not run")
+
+    return build_plan(
+        message,
+        force_main=False,
+        scope="local",
+        local_ready=local_ready,
+        remote_ready=False,
+        analyze=analyze or explode,
+        scripts=scripts,
+    )
+
+
+def test_catalog_matches_one_script_and_ignores_a_tie(tmp_path):
+    _write(tmp_path, "toast.py", TOAST)
+    _write(tmp_path, "notify.py", NOTIFY)
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    _write(nested, "hidden.py", TOAST)
+    scripts = load_catalog(tmp_path)
+    assert [script.id for script in scripts] == ["notify", "toast"]
+    toast = choose_script("show a toast that the backup finished", scripts)
+    assert toast is not None and toast.id == "toast"
+    assert choose_script("toast and notify", scripts) is None
+    assert choose_script("compare the two options", scripts) is None
+
+
+def test_clear_script_request_skips_analysis(tmp_path):
+    _write(tmp_path, "toast.py", TOAST)
+    scripts = load_catalog(tmp_path)
+    steps, called = _plan("show a toast that the backup finished", scripts)
+    assert called is False
+    assert steps == [Step("run_script", "show a toast that the backup finished", "", "toast")]
+    planning, called = _plan(
+        "compare toast and notification",
+        scripts,
+        local_ready=False,
+    )
+    assert called is False
+    assert planning[0].kind == "main"
+
+
+def test_analysis_can_name_a_script_and_the_plan_runs_it():
+    parsed = parse_delegation("sub run_script toast")
+    assert parsed == [Step("run_script", "", "", "toast")]
+    assert parse_delegation("sub run_script ../toast") is None
+    seen = {}
+
+    def launch(script_id, task):
+        seen["id"] = script_id
+        seen["task"] = task
+        return "Toast shown."
+
+    result = execute_plan(
+        parsed,
+        "show a toast",
+        scope="orchestrator",
+        worker_ready=False,
+        blocked_reason="Free memory is below 700 MB. The local model will not start.",
+        summarize=lambda *_args: "no",
+        quick=lambda *_args: "no",
+        main=lambda *_args: "no",
+        run_script=launch,
+    )
+    assert result == "Toast shown."
+    assert seen == {"id": "toast", "task": "show a toast"}
+
+
+def test_add_script_requires_keywords_and_refuses_a_second_copy(tmp_path):
+    source = tmp_path / "outside" / "toast.py"
+    source.parent.mkdir()
+    source.write_text(TOAST, encoding="utf-8")
+    destination = add_script(tmp_path / "scripts", source)
+    assert destination.name == "toast.py"
+    assert "toast" in load_catalog(destination.parent)[0].keywords
+    with pytest.raises(MultiAgentXError, match="already exists"):
+        add_script(tmp_path / "scripts", source)
+    bare = tmp_path / "bare.py"
+    bare.write_text("print(1)\n", encoding="utf-8")
+    with pytest.raises(MultiAgentXError, match="docstring"):
+        add_script(tmp_path / "scripts", bare)
+
+
+def test_examples_install_without_replacing_a_user_script(tmp_path):
+    custom = tmp_path / "toast.py"
+    custom.write_text(TOAST, encoding="utf-8")
+    installed = install_examples(tmp_path)
+    assert "toast" not in installed
+    assert {"notify", "battery"} <= set(installed)
+    assert custom.read_text(encoding="utf-8") == TOAST
+
+
+def test_runner_only_starts_a_catalog_script(tmp_path):
+    script = _write(tmp_path, "toast.py", TOAST)
+    catalog = load_catalog(tmp_path)
+    seen = {}
+
+    def launch(command, *, cwd, timeout):
+        seen["command"] = command
+        seen["cwd"] = cwd
+        seen["timeout"] = timeout
+        return SimpleNamespace(returncode=0, stdout="Toast shown.\n", stderr="")
+
+    result = run_script(
+        "toast",
+        "backup finished",
+        catalog,
+        timeout=5,
+        max_output=100,
+        runner=launch,
+    )
+    assert result == "Toast shown."
+    assert seen["command"][1] == str(script.resolve())
+    assert seen["command"][2] == "backup finished"
+    assert seen["cwd"] == str(script.resolve().parent)
+    assert seen["timeout"] == 5
+    assert run_script("missing", "x", catalog, timeout=1, max_output=10, runner=launch) == (
+        "Unknown script: missing."
+    )
+    assert not script_path_is_inside(tmp_path.parent / "other.py", tmp_path)
+
+    def expire(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd="toast", timeout=1)
+
+    assert (
+        run_script("toast", "x", catalog, timeout=1, max_output=10, runner=expire)
+        == "The script timed out."
+    )

@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
-from multiagentx.config import LimitSettings
-from multiagentx.tools.fetch import Page
+from agentx.config import FetchSettings, LimitSettings
+from agentx.errors import MultiAgentXError
+from agentx.tools.fetch import Page
+from agentx.tools.render import (
+    BROWSER_EXTRA_MISSING,
+    BROWSER_RENDER_EMPTY,
+    BROWSER_RENDER_FAILED,
+    render_page,
+)
 
 QUICK_SYSTEM = (
     "Answer briefly. "
@@ -69,8 +76,14 @@ def summarize_url(
     limits: LimitSettings,
     timeout: float,
     on_token=None,
+    renderer=None,
 ) -> str:
     page: Page = fetch(url)
+    if page.script_shell:
+        rendered = _render_script_page(page, renderer)
+        if isinstance(rendered, str):
+            return rendered
+        page = rendered
     if not page.text.strip():
         return "The page had no text to extract."
     chunks, cut = chunk_text(page.text, limits.chunk_chars, limits.max_chunks)
@@ -109,3 +122,31 @@ def summarize_url(
     )
     body = merged or "\n\n".join(part for part in summaries if part)
     return body + note
+
+
+def _render_script_page(page: Page, renderer):
+    """Render a script shell, or return a note instead of a fake summary."""
+    settings = FetchSettings(
+        max_bytes=page.max_bytes,
+        timeout_seconds=page.timeout_seconds,
+        max_redirects=page.max_redirects,
+    )
+    try:
+        rendered = render_page(page.url, settings=settings, renderer=renderer)
+    except MultiAgentXError as exc:
+        if str(exc) == BROWSER_RENDER_FAILED:
+            return _script_notice(page.text, BROWSER_RENDER_FAILED)
+        raise
+    if rendered is None:
+        return _script_notice(page.text, BROWSER_EXTRA_MISSING)
+    if not rendered.text.strip() or rendered.script_shell:
+        visible = rendered.text if rendered.text.strip() else page.text
+        return _script_notice(visible, BROWSER_RENDER_EMPTY)
+    return rendered
+
+
+def _script_notice(text: str, reason: str) -> str:
+    body = text.strip()
+    if not body:
+        return reason
+    return f"{body}\n\n{reason}"

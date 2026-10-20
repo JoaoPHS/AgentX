@@ -12,10 +12,10 @@ from pathlib import Path
 
 import httpx
 
-from multiagentx.config import LocalSettings
-from multiagentx.errors import MultiAgentXError
-from multiagentx.llm.openai_http import stream_chat
-from multiagentx.resources.governor import Governor
+from agentx.config import LocalSettings
+from agentx.errors import MultiAgentXError
+from agentx.llm.openai_http import stream_chat
+from agentx.resources.governor import Governor
 
 
 def build_server_command(

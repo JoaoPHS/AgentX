@@ -7,7 +7,7 @@ from collections.abc import Iterator
 
 import httpx
 
-from multiagentx.errors import MultiAgentXError
+from agentx.errors import MultiAgentXError
 
 
 def stream_chat(

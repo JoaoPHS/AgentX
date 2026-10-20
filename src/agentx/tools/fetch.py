@@ -11,11 +11,24 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from multiagentx.config import FetchSettings
-from multiagentx.errors import MultiAgentXError
+from agentx.config import FetchSettings
+from agentx.errors import MultiAgentXError
 
 _SKIP_TAGS = {"script", "style", "noscript", "nav", "footer"}
 _PREFERRED_TAGS = {"article", "main"}
+
+
+# Visible text at or below this length can still be a script shell.
+_SHELL_TEXT_LIMIT = 80
+_SHELL_MARKERS = re.compile(
+    r"""(?xi)
+    <noscript\b
+    | <app-root\b
+    | \bid\s*=\s*['"](?:root|app|__next|__nuxt|app-root)['"]
+    | \bdata-reactroot\b
+    | \bng-version\s*=
+    """
+)
 
 
 @dataclass(frozen=True)
@@ -23,6 +36,10 @@ class Page:
     url: str
     text: str
     truncated: bool
+    script_shell: bool = False
+    timeout_seconds: int = 20
+    max_bytes: int = 2_097_152
+    max_redirects: int = 5
 
 
 def default_resolve(hostname: str, port: int) -> list[str]:
@@ -63,7 +80,7 @@ def download(
         trust_env=False,
         follow_redirects=False,
         timeout=options.timeout_seconds,
-        headers={"User-Agent": "multiagentx"},
+        headers={"User-Agent": "agentx"},
     ) as client:
         while True:
             check_url(current, resolve)
@@ -87,7 +104,16 @@ def download(
     if not _looks_like_text(content_type, raw):
         raise MultiAgentXError("Only HTML pages can be extracted.")
     html = raw.decode("utf-8", errors="replace")
-    return Page(url=current, text=extract_article(html), truncated=truncated)
+    text = extract_article(html)
+    return Page(
+        url=current,
+        text=text,
+        truncated=truncated,
+        script_shell=looks_like_script_shell(html, text),
+        timeout_seconds=options.timeout_seconds,
+        max_bytes=options.max_bytes,
+        max_redirects=options.max_redirects,
+    )
 
 
 def extract_article(html: str) -> str:
@@ -113,6 +139,20 @@ def extract_with_parser(html: str) -> str:
     if preferred:
         return preferred
     return _clean(parser.all_text)
+
+
+def looks_like_script_shell(html: str, text: str) -> bool:
+    """True when the static extract is empty or only a JavaScript shell.
+
+    A shell is a `noscript` block or an app root with almost no visible text.
+    A short page without those markers stays on the static path.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return True
+    if len(stripped) > _SHELL_TEXT_LIMIT:
+        return False
+    return _SHELL_MARKERS.search(html) is not None
 
 
 def excerpt(text: str, limit: int = 4000) -> str:

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import httpx
 
-from multiagentx.config import AppConfig, ProviderSettings, provider_settings
-from multiagentx.errors import MultiAgentXError
-from multiagentx.llm.openai_http import parse_anthropic_line, stream_chat
+from agentx.config import AppConfig, ProviderSettings, provider_settings
+from agentx.errors import MultiAgentXError
+from agentx.llm.openai_http import parse_anthropic_line, stream_chat
 
 
 class RemoteClient:

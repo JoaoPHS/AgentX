@@ -1,6 +1,6 @@
-from multiagentx.agents.main_agent import FINAL_INSTRUCTION, LIMIT_MESSAGE, run_main
-from multiagentx.config import LimitSettings
-from multiagentx.tools.fetch import Page
+from agentx.agents.main_agent import FINAL_INSTRUCTION, LIMIT_MESSAGE, run_main
+from agentx.config import LimitSettings
+from agentx.tools.fetch import Page
 
 
 class Scripted:

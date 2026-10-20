@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from multiagentx.config import AppConfig
-from multiagentx.errors import MultiAgentXError
+from agentx.config import AppConfig
+from agentx.errors import MultiAgentXError
 
 ROLES = ("orchestrator", "subagent", "main")
 

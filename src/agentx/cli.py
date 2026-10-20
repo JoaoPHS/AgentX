@@ -5,20 +5,30 @@ from __future__ import annotations
 import os
 import sys
 import traceback
+from pathlib import Path
 
-from multiagentx.config import PROVIDERS, AppConfig, init_config, load_config, normalize_scope
-from multiagentx.errors import MultiAgentXError
-from multiagentx.llm.local import LocalServer
-from multiagentx.llm.remote import RemoteClient
-from multiagentx.llm.router import Router, Session
-from multiagentx.orchestrator import Orchestrator
-from multiagentx.resources.governor import Governor
+from agentx.config import PROVIDERS, AppConfig, init_config, load_config, normalize_scope
+from agentx.errors import MultiAgentXError
+from agentx.llm.local import LocalServer
+from agentx.llm.remote import RemoteClient
+from agentx.llm.router import Router, Session
+from agentx.automation.catalog import (
+    add_script,
+    install_examples,
+    load_catalog,
+    scripts_dir,
+)
+from agentx.orchestrator import Orchestrator
+from agentx.resources.governor import Governor
 
 HELP = """\
 Usage:
-  multiagentx                 open the chat
-  multiagentx "task"          run one task and exit
-  multiagentx init            write a config file with no secrets
+  agentx                 open the chat
+  agentx "task"          run one task and exit
+  agentx init            write a config file with no secrets
+  agentx script list     list installed automation scripts
+  agentx script add FILE copy a Python script into the script directory
+  agentx script examples install the mobile examples
 
 In the chat:
   /model                      show the current key scope
@@ -27,6 +37,7 @@ In the chat:
   /model orchestrator
   /model main
   /engineer <task>            send the task straight to the main agent
+  /scripts                    list installed automation scripts
   /exit
 """
 
@@ -55,6 +66,13 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Config written to {path}")
         return 0
+    if args and args[0] == "script":
+        try:
+            config = load_config()
+        except MultiAgentXError as exc:
+            _report(exc)
+            return 1
+        return script_command(config, args[1:])
     try:
         config = load_config()
     except MultiAgentXError as exc:
@@ -149,6 +167,8 @@ def interpret(line: str, session: Session, config: AppConfig) -> tuple[str, str,
     text = line.strip()
     if text in {"/exit", "/quit"}:
         return ("exit", "", False)
+    if text == "/scripts":
+        return ("reply", _script_list(config), False)
     if text == "/model":
         return ("reply", describe_session(session, config), False)
     if text.startswith("/model "):
@@ -190,6 +210,44 @@ def describe_session(session: Session, config: AppConfig) -> str:
         return "Session: local."
     provider = session.provider_name(config)
     return f"Session: {provider}, scope {scope}."
+
+
+def script_command(config: AppConfig, args: list[str]) -> int:
+    directory = scripts_dir(config)
+    if args == ["list"]:
+        print(_script_list(config))
+        return 0
+    if args == ["examples"]:
+        try:
+            installed = install_examples(directory)
+        except MultiAgentXError as exc:
+            _report(exc)
+            return 1
+        if installed:
+            print("Installed " + ", ".join(installed) + f" in {directory}")
+        else:
+            print(f"Mobile examples are already in {directory}")
+        return 0
+    if len(args) == 2 and args[0] == "add":
+        try:
+            destination = add_script(directory, Path(args[1]))
+        except MultiAgentXError as exc:
+            _report(exc)
+            return 1
+        print(f"Script written to {destination}")
+        return 0
+    print("Use script list, script add FILE, or script examples.", file=sys.stderr)
+    return 1
+
+
+def _script_list(config: AppConfig) -> str:
+    directory = scripts_dir(config)
+    scripts = load_catalog(directory)
+    if not scripts:
+        return f"No scripts in {directory}. Add one with: agentx script add file.py"
+    lines = [f"Scripts in {directory}:"]
+    lines.extend(f"{script.id}: {script.description}" for script in scripts)
+    return "\n".join(lines)
 
 
 def trim_history(history: list[dict], max_chars: int) -> list[dict]:

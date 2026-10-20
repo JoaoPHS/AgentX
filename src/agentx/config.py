@@ -8,7 +8,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from multiagentx.errors import MultiAgentXError
+from agentx.errors import MultiAgentXError
 
 SCOPES = ("local", "all", "orchestrator", "main")
 PROVIDERS = ("openrouter", "anthropic", "openai")
@@ -62,6 +62,10 @@ timeout_seconds = 20
 [orchestrator]
 max_tokens = 80
 max_delegations = 3
+
+[scripts]
+dir = ""
+timeout_seconds = 30
 """
 
 
@@ -117,6 +121,13 @@ class OrchestratorSettings:
 
 
 @dataclass
+class ScriptSettings:
+    dir: str = ""
+    timeout_seconds: int = 30
+    max_output_chars: int = 8000
+
+
+@dataclass
 class LimitSettings:
     request_timeout_seconds: int = 180
     quick_max_tokens: int = 256
@@ -144,6 +155,7 @@ class AppConfig:
     governor: GovernorSettings = field(default_factory=GovernorSettings)
     fetch: FetchSettings = field(default_factory=FetchSettings)
     orchestrator: OrchestratorSettings = field(default_factory=OrchestratorSettings)
+    scripts: ScriptSettings = field(default_factory=ScriptSettings)
     limits: LimitSettings = field(default_factory=LimitSettings)
     path: Path | None = None
 
@@ -152,7 +164,7 @@ def default_config_path() -> Path:
     override = os.environ.get("MULTIAGENTX_CONFIG", "").strip()
     if override:
         return Path(override)
-    return Path.home() / ".config" / "multiagentx" / "config.toml"
+    return Path.home() / ".config" / "agentx" / "config.toml"
 
 
 def init_config(path: Path | None = None) -> Path:
@@ -249,6 +261,15 @@ def _apply(config: AppConfig, raw: dict) -> None:
     )
     config.orchestrator.max_delegations = _int(
         orchestrator, "max_delegations", config.orchestrator.max_delegations
+    )
+
+    scripts = _table(raw, "scripts")
+    config.scripts.dir = _str(scripts, "dir", config.scripts.dir)
+    config.scripts.timeout_seconds = _int(
+        scripts, "timeout_seconds", config.scripts.timeout_seconds
+    )
+    config.scripts.max_output_chars = _int(
+        scripts, "max_output_chars", config.scripts.max_output_chars
     )
 
     limits = _table(raw, "limits")

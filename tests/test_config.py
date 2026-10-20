@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from multiagentx.config import init_config, load_config
-from multiagentx.errors import MultiAgentXError
+from agentx.config import init_config, load_config
+from agentx.errors import MultiAgentXError
 
 SECRET = "sk-ant-secret"
 
@@ -89,7 +89,7 @@ def test_env_config_path(tmp_path, monkeypatch):
     path = tmp_path / "other.toml"
     path.write_text('[routing]\nremote_scope = "all"\n', encoding="utf-8")
     monkeypatch.setenv("MULTIAGENTX_CONFIG", str(path))
-    from multiagentx.config import default_config_path
+    from agentx.config import default_config_path
 
     assert default_config_path() == Path(path)
     assert load_config().routing.remote_scope == "all"

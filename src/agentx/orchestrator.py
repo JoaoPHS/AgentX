@@ -7,10 +7,18 @@ import time
 import unicodedata
 from dataclasses import dataclass
 
-from multiagentx.agents.main_agent import run_main
-from multiagentx.agents.subagents import quick_answer, summarize_url
-from multiagentx.errors import MultiAgentXError
-from multiagentx.tools.fetch import download
+from agentx.agents.main_agent import run_main
+from agentx.agents.subagents import quick_answer, summarize_url
+from agentx.automation.catalog import (
+    choose_script,
+    format_catalog,
+    is_script_id,
+    load_catalog,
+    scripts_dir,
+)
+from agentx.automation.runner import run_script
+from agentx.errors import MultiAgentXError
+from agentx.tools.fetch import download
 
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _SHORT = re.compile(r"\b(define|translate|rewrite)\b")
@@ -31,9 +39,12 @@ ANALYSIS_SYSTEM = (
     "At most 3 lines, no prose. "
     "sub summarize_url URL when a page is source material. "
     "sub quick_answer only when the whole task is a short reply, and alone. "
+    "sub run_script ID when an installed script does that part. "
     "main short instruction at the end, at most one, only for what the routines cannot do. "
     "Routines first."
 )
+
+_PLANNING = ("search", "compare", "plan", "code", "analyze", "analyse", "implement")
 
 
 @dataclass(frozen=True)
@@ -41,6 +52,7 @@ class Step:
     kind: str
     brief: str = ""
     url: str = ""
+    script: str = ""
 
 
 class Orchestrator:
@@ -63,12 +75,14 @@ class Orchestrator:
         scope = self.session.scope_name(self.config)
         local_ready = self.router.workers_ready()
         remote_ready = self.router.remote.block_reason() is None
+        installed = load_catalog(scripts_dir(self.config))
+        analysis = f"{ANALYSIS_SYSTEM}\n{format_catalog(installed)}"
 
         def analyze(text: str) -> str:
             return self.router.complete(
                 "orchestrator",
                 [
-                    {"role": "system", "content": ANALYSIS_SYSTEM},
+                    {"role": "system", "content": analysis},
                     {"role": "user", "content": text},
                 ],
                 max_tokens=self.config.orchestrator.max_tokens,
@@ -84,6 +98,7 @@ class Orchestrator:
             remote_ready=remote_ready,
             analyze=analyze,
             max_delegations=self.config.orchestrator.max_delegations,
+            scripts=installed,
         )
         solo = len(steps) == 1
         shared_history = history if solo else None
@@ -121,6 +136,17 @@ class Orchestrator:
                 prior=prior,
                 history=shared_history,
                 on_token=token,
+                run_script=launch_script,
+                scripts=installed,
+            )
+
+        def launch_script(script_id: str, task: str) -> str:
+            return run_script(
+                script_id,
+                task,
+                installed,
+                timeout=min(self._timeout(), self.config.scripts.timeout_seconds),
+                max_output=self.config.scripts.max_output_chars,
             )
 
         blocked = None if local_ready else self.router.local.possible()
@@ -133,6 +159,7 @@ class Orchestrator:
             summarize=run_summary,
             quick=run_quick,
             main=run_engineer,
+            run_script=launch_script,
             on_token=on_token,
             status=status,
         )
@@ -153,18 +180,19 @@ def build_plan(
     remote_ready: bool,
     analyze,
     max_delegations: int = 3,
+    scripts=(),
 ) -> tuple[list[Step], bool]:
     if force_main:
         return [Step("main", brief=message.strip())], False
-    direct = direct_plan(message)
+    direct = direct_plan(message, scripts)
     if direct is not None:
         return direct, False
     if can_analyze(scope, local_ready, remote_ready):
         parsed = parse_delegation(analyze(message), max_delegations=max_delegations)
         if parsed:
             return parsed, True
-        return fallback_plan(message, max_delegations=max_delegations), True
-    return fallback_plan(message, max_delegations=max_delegations), False
+        return fallback_plan(message, max_delegations=max_delegations, scripts=scripts), True
+    return fallback_plan(message, max_delegations=max_delegations, scripts=scripts), False
 
 
 def can_analyze(scope: str, local_ready: bool, remote_ready: bool) -> bool:
@@ -173,12 +201,15 @@ def can_analyze(scope: str, local_ready: bool, remote_ready: bool) -> bool:
     return local_ready
 
 
-def direct_plan(message: str) -> list[Step] | None:
+def direct_plan(message: str, scripts=()) -> list[Step] | None:
     summary = summary_target(message)
     if summary:
         return [Step("summarize_url", brief=summary, url=summary)]
     if is_short_request(message):
         return [Step("quick_answer", brief=message.strip())]
+    scripted = _script_step(message, scripts)
+    if scripted is not None:
+        return [scripted]
     return None
 
 
@@ -204,9 +235,12 @@ def is_short_request(message: str) -> bool:
     return "what is" in folded or _SHORT.search(folded) is not None
 
 
-def fallback_plan(message: str, *, max_delegations: int = 3) -> list[Step]:
+def fallback_plan(message: str, *, max_delegations: int = 3, scripts=()) -> list[Step]:
     folded = fold(message)
     text = message.strip()
+    scripted = _script_step(message, scripts)
+    if scripted is not None:
+        return [scripted]
     if not _has_task(folded):
         return [Step("quick_answer", brief=text)]
     steps: list[Step] = []
@@ -233,6 +267,12 @@ def parse_delegation(text: str, *, max_delegations: int = 3) -> list[Step] | Non
             brief = line[len("sub quick_answer") :].strip()
             steps.append(Step("quick_answer", brief=brief))
             continue
+        if line.startswith("sub run_script "):
+            script_id = line[len("sub run_script ") :].strip().split()[0].casefold()
+            if not is_script_id(script_id):
+                return None
+            steps.append(Step("run_script", script=script_id))
+            continue
         if line == "main" or line.startswith("main "):
             brief = line[len("main") :].strip()
             steps.append(Step("main", brief=brief))
@@ -256,12 +296,15 @@ def execute_plan(
     summarize,
     quick,
     main,
+    run_script=None,
     on_token=None,
     status=None,
 ) -> str:
-    if scope == "orchestrator" and not worker_ready:
+    needs_model = any(step.kind != "run_script" for step in steps)
+    if scope == "orchestrator" and not worker_ready and needs_model:
         return blocked_reason or "The local model is not available to run the task."
-    if scope == "main" and not worker_ready and any(step.kind != "main" for step in steps):
+    script_only = bool(steps) and all(step.kind == "run_script" for step in steps)
+    if scope == "main" and not worker_ready and not script_only and any(step.kind != "main" for step in steps):
         steps = [Step("main", brief=message.strip())]
     collected: list[str] = []
     result = ""
@@ -275,6 +318,14 @@ def execute_plan(
             collected.append(result)
         elif step.kind == "quick_answer":
             result = quick(step.brief or message.strip(), token)
+            collected.append(result)
+        elif step.kind == "run_script":
+            if not last and status:
+                status(f"Running {step.script}.")
+            if run_script is None:
+                result = f"Unknown script: {step.script}."
+            else:
+                result = run_script(step.script, step.brief or message.strip())
             collected.append(result)
         else:
             prior = _clip("\n\n".join(collected))
@@ -302,6 +353,16 @@ def _bare_url(message: str) -> str | None:
 
 def _clean_url(url: str) -> str:
     return url.rstrip(".,);]>'\"")
+
+
+def _script_step(message: str, scripts) -> Step | None:
+    folded = fold(message)
+    if any(re.search(rf"\b{word}\b", folded) for word in _PLANNING):
+        return None
+    chosen = choose_script(message, list(scripts))
+    if chosen is None:
+        return None
+    return Step("run_script", brief=message.strip(), script=chosen.id)
 
 
 def _has_task(folded: str) -> bool:

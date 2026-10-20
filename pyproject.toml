@@ -1,5 +1,5 @@
 [project]
-name = "multiagentx"
+name = "agentx"
 version = "0.1.0"
 description = "Task runner for Termux, with an orchestrator and a local model."
 readme = "README.md"
@@ -8,9 +8,10 @@ dependencies = ["httpx>=0.27"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+browser = ["playwright>=1.40"]
 
 [project.scripts]
-multiagentx = "multiagentx.cli:main"
+agentx = "agentx.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

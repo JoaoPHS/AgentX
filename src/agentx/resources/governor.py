@@ -8,7 +8,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 
-from multiagentx.config import GovernorSettings
+from agentx.config import GovernorSettings
 
 
 @dataclass(frozen=True)

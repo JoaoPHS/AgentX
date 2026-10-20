@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import re
 
-from multiagentx.agents.subagents import summarize_url
-from multiagentx.errors import MultiAgentXError
-from multiagentx.tools.fetch import excerpt
+from agentx.agents.subagents import summarize_url
+from agentx.errors import MultiAgentXError
+from agentx.tools.fetch import excerpt
 
 MAIN_SYSTEM = (
     "You are the engineer. Carry out only the part of the task you were given. "
@@ -17,17 +17,19 @@ MAIN_SYSTEM = (
     'TOOL fetch_article {"url":"https://..."}\n'
     "or\n"
     'TOOL summarize_url {"url":"https://..."}\n'
+    "or, for an installed mobile script,\n"
+    'TOOL run_script {"id":"script_id"}\n'
     "Otherwise reply with the result and do not use tools."
 )
 
 FINAL_INSTRUCTION = "Do not use tools. Reply now with the result of the task."
 
-_TOOL = re.compile(r"^TOOL\s+(fetch_article|summarize_url)\s+(\{.*\})\s*$", re.DOTALL)
+_TOOL = re.compile(r"^TOOL\s+(fetch_article|summarize_url|run_script)\s+(\{.*\})\s*$", re.DOTALL)
 
 LIMIT_MESSAGE = "The task could not be finished within the step limit."
 
 
-def parse_tool(text: str) -> tuple[str, str] | None:
+def parse_tool(text: str) -> tuple[str, dict] | None:
     match = _TOOL.match(text.strip())
     if match is None:
         return None
@@ -35,9 +37,16 @@ def parse_tool(text: str) -> tuple[str, str] | None:
         payload = json.loads(match.group(2))
     except json.JSONDecodeError:
         return None
-    if not isinstance(payload, dict) or not isinstance(payload.get("url"), str):
+    if not isinstance(payload, dict):
         return None
-    return match.group(1), payload["url"]
+    name = match.group(1)
+    if name == "run_script":
+        if not isinstance(payload.get("id"), str) or not payload["id"].strip():
+            return None
+        return name, payload
+    if not isinstance(payload.get("url"), str):
+        return None
+    return name, payload
 
 
 def run_main(
@@ -50,12 +59,14 @@ def run_main(
     prior: str = "",
     history: list[dict] | None = None,
     on_token=None,
+    run_script=None,
+    scripts=(),
 ) -> str:
     reason = router.block_reason("main")
     if reason:
         return reason
     user = brief if not prior else f"{brief}\n\nMaterial already gathered:\n{prior}"
-    messages: list[dict] = [{"role": "system", "content": MAIN_SYSTEM}]
+    messages: list[dict] = [{"role": "system", "content": _system_prompt(scripts)}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user})
     used = 0
@@ -78,26 +89,41 @@ def run_main(
             if forced and parse_tool(text):
                 return LIMIT_MESSAGE
             return text or "The model returned no text."
-        name, url = tool
+        name, payload = tool
         used += 1
         observation = _run_tool(
             name,
-            url,
+            payload,
+            brief=brief,
             router=router,
             fetch=fetch,
             limits=limits,
             timeout=timeout,
+            run_script=run_script,
         )
         messages.append({"role": "assistant", "content": text})
         messages.append({"role": "user", "content": f"Result of {name}:\n{observation}"})
 
 
-def _run_tool(name: str, url: str, *, router, fetch, limits, timeout: float) -> str:
+def _system_prompt(scripts) -> str:
+    if not scripts:
+        return MAIN_SYSTEM
+    lines = [MAIN_SYSTEM, "Installed scripts:"]
+    for script in list(scripts)[:20]:
+        lines.append(f"- {script.id}: {script.description}")
+    return "\n".join(lines)
+
+
+def _run_tool(name: str, payload: dict, *, brief: str, router, fetch, limits, timeout: float, run_script) -> str:
     try:
         if name == "fetch_article":
-            return excerpt(fetch(url).text)
+            return excerpt(fetch(payload["url"]).text)
+        if name == "run_script":
+            if run_script is None:
+                return f"Unknown script: {payload['id']}."
+            return run_script(str(payload["id"]).casefold(), brief)
         return summarize_url(
-            url,
+            payload["url"],
             router=router,
             fetch=fetch,
             limits=limits,

@@ -3,13 +3,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from multiagentx.config import FetchSettings
-from multiagentx.errors import MultiAgentXError
-from multiagentx.tools.fetch import (
+from agentx.config import FetchSettings
+from agentx.errors import MultiAgentXError
+from agentx.tools.fetch import (
     check_url,
     download,
     extract_article,
     extract_with_parser,
+    looks_like_script_shell,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "article.html"
@@ -119,3 +120,45 @@ def test_public_page_is_extracted():
     )
     assert "main paragraph" in page.text
     assert page.truncated is False
+    assert page.script_shell is False
+
+
+def test_empty_or_app_shell_is_marked_without_a_browser():
+    empty = "<html><body><p> </p></body></html>"
+    shell = (
+        "<html><body><div id='root'></div>"
+        "<noscript>You need to enable JavaScript to run this app.</noscript>"
+        "</body></html>"
+    )
+    loading = "<html><body><div id='app'>Loading...</div></body></html>"
+    short = "<html><body><p>Hi there.</p></body></html>"
+    long = (
+        "<html><body><p>A sufficiently long note that should still be "
+        "summarized because it has real text beyond a shell.</p>"
+        "<noscript>Enable JavaScript.</noscript></body></html>"
+    )
+    assert looks_like_script_shell(empty, "") is True
+    assert looks_like_script_shell(shell, "") is True
+    assert looks_like_script_shell(loading, "Loading...") is True
+    assert looks_like_script_shell(short, "Hi there.") is False
+    assert looks_like_script_shell(long, "A sufficiently long note that should still be summarized because it has real text beyond a shell.") is False
+
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(200, text=shell, headers={"content-type": "text/html"})
+
+    page = download(
+        "https://example.com/app",
+        settings=FetchSettings(max_bytes=1000, timeout_seconds=7, max_redirects=2),
+        resolve=_public,
+        transport=httpx.MockTransport(handler),
+    )
+    assert seen == ["https://example.com/app"]
+    assert page.script_shell is True
+    assert page.text == ""
+    assert "JavaScript" not in page.text
+    assert page.timeout_seconds == 7
+    assert page.max_bytes == 1000
+    assert page.max_redirects == 2

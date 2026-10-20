@@ -1,13 +1,13 @@
 import pytest
 
-from multiagentx.agents.subagents import summarize_url
-from multiagentx.config import LimitSettings
-from multiagentx.orchestrator import (
+from agentx.agents.subagents import summarize_url
+from agentx.config import LimitSettings
+from agentx.orchestrator import (
     build_plan,
     execute_plan,
     parse_delegation,
 )
-from multiagentx.tools.fetch import Page
+from agentx.tools.fetch import Page
 
 
 def _plan(message, *, scope="local", local_ready=True, remote_ready=False, analyze=None, force=False):
@@ -218,6 +218,6 @@ def test_orchestrator_scope_does_not_widen_the_key():
 
 
 def steps_only():
-    from multiagentx.orchestrator import Step
+    from agentx.orchestrator import Step
 
     return Step("main", brief="task")

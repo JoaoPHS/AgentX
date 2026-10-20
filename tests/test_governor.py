@@ -1,5 +1,5 @@
-from multiagentx.config import GovernorSettings
-from multiagentx.resources.governor import (
+from agentx.config import GovernorSettings
+from agentx.resources.governor import (
     Battery,
     Governor,
     decide_local,
