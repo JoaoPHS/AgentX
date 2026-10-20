@@ -50,6 +50,21 @@ def test_invalid_scope_hides_secret(tmp_path):
     assert SECRET not in str(caught.value)
 
 
+def test_openai_env_key(tmp_path, monkeypatch):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[routing]\nremote_provider = "openai"\n[openai]\nmodel = "gpt-4o-mini"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", SECRET)
+    config = load_config(path)
+    assert config.routing.remote_provider == "openai"
+    assert config.openai.model == "gpt-4o-mini"
+    assert config.openai.base_url == "https://api.openai.com/v1"
+    assert config.openai.api_key == SECRET
+    assert SECRET not in repr(config)
+
+
 def test_missing_file_uses_defaults(tmp_path):
     config = load_config(tmp_path / "missing.toml")
     assert config.routing.remote_scope == "local"

@@ -1,4 +1,4 @@
-"""OpenRouter and Anthropic."""
+"""OpenRouter, Anthropic, and OpenAI."""
 
 from __future__ import annotations
 
@@ -22,7 +22,9 @@ class RemoteClient:
         if name == "local":
             return "Local scope does not use a remote key."
         settings = provider_settings(self.config, name)
-        label = "Anthropic" if name == "anthropic" else "OpenRouter"
+        label = {"anthropic": "Anthropic", "openrouter": "OpenRouter", "openai": "OpenAI"}[
+            name
+        ]
         if not settings.api_key:
             return f"Missing the {label} key."
         if not settings.model:

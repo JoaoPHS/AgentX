@@ -2,12 +2,12 @@
 
 Run tasks from Termux. One Python process takes the request. An orchestrator decides what the work needs, then hands each part to the cheapest worker that can finish it.
 
-A link summary is one fixed routine, not the product. A page is downloaded only when the task needs it.
+This is a task runner. A page is fetched only when the task needs that text.
 
 ```text
 multiagentx "plan a script that reads a CSV and writes a summary"
 multiagentx "compare two ways to validate a form"
-multiagentx "summarize https://example.com/article"
+multiagentx "write a shell function that backs up a directory"
 ```
 
 There is no graphical interface and no real browser. The local model is a separate `llama-server` process. It starts for a request and exits after it sits idle, so the phone does not keep the weights in RAM.
@@ -35,14 +35,6 @@ pkg update && pkg upgrade -y
 pkg install -y python llama-cpp
 pip install .
 ```
-
-Richer article extraction is optional and needs `libxml2`:
-
-```bash
-pip install ".[articles]"
-```
-
-Without that extra, the standard-library HTML parser still returns the article text.
 
 Python 3.11 or newer. The only required dependency is `httpx`. No LangChain and no PyTorch.
 
@@ -81,7 +73,7 @@ context = 2048
 idle_seconds = 120
 
 [routing]
-remote_provider = "openrouter"   # or anthropic
+remote_provider = "openrouter"   # openrouter, anthropic, or openai
 remote_scope = "local"           # local, all, orchestrator, or main
 
 [openrouter]
@@ -91,9 +83,13 @@ model = ""                       # any model id from that provider
 [anthropic]
 base_url = "https://api.anthropic.com"
 model = ""
+
+[openai]
+base_url = "https://api.openai.com/v1"
+model = ""
 ```
 
-The remote model id stays in the config. There is no fixed slug in the code. OpenRouter can point at whatever model that key can call. Anthropic is the other built-in provider. The commands below do not name a vendor. They only choose where the configured key is allowed to run.
+The remote model id stays in the config. There is no fixed slug in the code. Each provider calls whichever model its key can use. The commands below do not pick a vendor. They only choose where the configured key is allowed to run.
 
 | Scope | Where the key is used |
 | --- | --- |
@@ -102,7 +98,7 @@ The remote model id stays in the config. There is no fixed slug in the code. Ope
 | `orchestrator` | Only the analysis that splits the task. Everything else stays on the phone. |
 | `main` | Only the main agent. Analysis stays local, or falls back to rules. |
 
-Keys come from `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, or `api_key` in the matching section. An environment variable wins over the file. Keys are not written to logs or error text.
+Keys come from `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `api_key` in the matching section. An environment variable wins over the file. Keys are not written to logs or error text.
 
 Point `MULTIAGENTX_CONFIG` at another file when you need one.
 
@@ -137,9 +133,9 @@ Replies are in English.
 
 `/model` changes the session only. It does not rewrite the config. Alone, it prints the current scope and the configured provider, and never the key.
 
-`/model all` uses whichever remote key is already in the config. To pick between two configured providers, name it: `/model openrouter main` or `/model anthropic all`.
+`/model all` uses whichever remote key is already in the config. To pick a provider, name it: `/model openrouter main`, `/model anthropic all`, or `/model openai orchestrator`.
 
-If a summary routine has neither a local model nor a key, you still get the extracted text plus the reason. Other tasks stop with the reason instead of pretending the work was done.
+If the chosen model cannot run, the task stops with the reason instead of pretending the work was done.
 
 ## Not in this version
 

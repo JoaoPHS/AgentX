@@ -11,7 +11,7 @@ from pathlib import Path
 from multiagentx.errors import MultiAgentXError
 
 SCOPES = ("local", "all", "orchestrator", "main")
-PROVIDERS = ("openrouter", "anthropic")
+PROVIDERS = ("openrouter", "anthropic", "openai")
 _SCOPE_ALIASES = {
     "local": "local",
     "all": "all",
@@ -21,7 +21,7 @@ _SCOPE_ALIASES = {
 
 TEMPLATE = """\
 # Recommended permissions: 600.
-# Keys: OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or api_key in the sections.
+# Keys: OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, or api_key in the sections.
 
 [local]
 model_path = ""
@@ -32,7 +32,7 @@ context = 2048
 idle_seconds = 120
 
 [routing]
-# openrouter or anthropic. The scope applies to whichever key you set.
+# openrouter, anthropic, or openai. The scope applies to whichever key you set.
 remote_provider = "anthropic"
 # local, all, orchestrator, or main
 remote_scope = "local"
@@ -43,6 +43,10 @@ model = ""
 
 [anthropic]
 base_url = "https://api.anthropic.com"
+model = ""
+
+[openai]
+base_url = "https://api.openai.com/v1"
 model = ""
 
 [governor]
@@ -134,6 +138,9 @@ class AppConfig:
     anthropic: ProviderSettings = field(
         default_factory=lambda: ProviderSettings("https://api.anthropic.com")
     )
+    openai: ProviderSettings = field(
+        default_factory=lambda: ProviderSettings("https://api.openai.com/v1")
+    )
     governor: GovernorSettings = field(default_factory=GovernorSettings)
     fetch: FetchSettings = field(default_factory=FetchSettings)
     orchestrator: OrchestratorSettings = field(default_factory=OrchestratorSettings)
@@ -181,9 +188,9 @@ def provider_settings(config: AppConfig, name: str) -> ProviderSettings:
         return config.openrouter
     if name == "anthropic":
         return config.anthropic
-    raise MultiAgentXError(
-        "Unknown remote provider. Use openrouter or anthropic."
-    )
+    if name == "openai":
+        return config.openai
+    raise MultiAgentXError(_unknown_provider())
 
 
 def _warn_permissions(path: Path) -> None:
@@ -213,6 +220,7 @@ def _apply(config: AppConfig, raw: dict) -> None:
 
     _apply_provider(config.openrouter, _table(raw, "openrouter"))
     _apply_provider(config.anthropic, _table(raw, "anthropic"))
+    _apply_provider(config.openai, _table(raw, "openai"))
 
     governor = _table(raw, "governor")
     config.governor.min_mem_mb = _int(governor, "min_mem_mb", config.governor.min_mem_mb)
@@ -266,10 +274,18 @@ def _apply_provider(settings: ProviderSettings, table: dict) -> None:
 def _apply_env(config: AppConfig) -> None:
     openrouter = os.environ.get("OPENROUTER_API_KEY", "").strip()
     anthropic = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    openai = os.environ.get("OPENAI_API_KEY", "").strip()
     if openrouter:
         config.openrouter.api_key = openrouter
     if anthropic:
         config.anthropic.api_key = anthropic
+    if openai:
+        config.openai.api_key = openai
+
+
+def _unknown_provider() -> str:
+    listed = ", ".join(PROVIDERS[:-1]) + f", or {PROVIDERS[-1]}"
+    return f"Unknown remote provider. Use {listed}."
 
 
 def normalize_scope(value: str) -> str | None:
@@ -278,9 +294,7 @@ def normalize_scope(value: str) -> str | None:
 
 def _validate(config: AppConfig) -> None:
     if config.routing.remote_provider not in PROVIDERS:
-        raise MultiAgentXError(
-            "Unknown remote provider. Use openrouter or anthropic."
-        )
+        raise MultiAgentXError(_unknown_provider())
     scope = normalize_scope(config.routing.remote_scope)
     if scope is None:
         raise MultiAgentXError(
