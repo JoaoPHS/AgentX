@@ -1,4 +1,4 @@
-"""Analisa a tarefa e delega, sem responder ao utilizador."""
+"""Split a task and delegate it. Does not answer the user."""
 
 from __future__ import annotations
 
@@ -7,42 +7,32 @@ import time
 import unicodedata
 from dataclasses import dataclass
 
-from multiagentx.agents.principal import run_principal
+from multiagentx.agents.main_agent import run_main
 from multiagentx.agents.subagents import quick_answer, summarize_url
 from multiagentx.errors import MultiAgentXError
 from multiagentx.tools.fetch import download
 
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
-_SHORT = re.compile(
-    r"\b(definir|define|traduzir|traduz|translate|reescrever|reescreve|rewrite)\b"
-)
+_SHORT = re.compile(r"\b(define|translate|rewrite)\b")
 _TASK_WORDS = (
-    "pesquisar",
-    "pesquisa",
-    "comparar",
-    "compara",
-    "planear",
-    "planejar",
-    "planeia",
-    "planeie",
-    "codigo",
-    "analisar",
-    "analisa",
-    "analise",
-    "executar",
-    "executa",
-    "implementar",
-    "implementa",
+    "search",
+    "compare",
+    "plan",
+    "code",
+    "analyze",
+    "analyse",
+    "execute",
+    "implement",
 )
-_SUMMARY_WORDS = ("resume", "resumo", "resumir", "summarize", "sumario")
+_SUMMARY_WORDS = ("summarize", "summary", "tldr")
 
 ANALYSIS_SYSTEM = (
-    "Não respondas ao utilizador. Parte a tarefa pelo trabalhador mais barato. "
-    "No máximo 3 linhas, sem prosa. "
-    "sub summarize_url URL quando uma página for matéria-prima. "
-    "sub quick_answer só se a tarefa inteira for uma resposta curta, e sozinha. "
-    "principal instrução curta no fim, no máximo uma, só para o que as rotinas não fazem. "
-    "Rotinas primeiro."
+    "Do not answer the user. Split the task across the cheapest worker that can finish each part. "
+    "At most 3 lines, no prose. "
+    "sub summarize_url URL when a page is source material. "
+    "sub quick_answer only when the whole task is a short reply, and alone. "
+    "main short instruction at the end, at most one, only for what the routines cannot do. "
+    "Routines first."
 )
 
 
@@ -64,7 +54,7 @@ class Orchestrator:
         self,
         message: str,
         *,
-        force_principal: bool = False,
+        force_main: bool = False,
         history: list[dict] | None = None,
         on_token=None,
         status=None,
@@ -76,7 +66,7 @@ class Orchestrator:
 
         def analyze(text: str) -> str:
             return self.router.complete(
-                "orquestrador",
+                "orchestrator",
                 [
                     {"role": "system", "content": ANALYSIS_SYSTEM},
                     {"role": "user", "content": text},
@@ -88,7 +78,7 @@ class Orchestrator:
 
         steps, _called = build_plan(
             message,
-            force_principal=force_principal,
+            force_main=force_main,
             scope=scope,
             local_ready=local_ready,
             remote_ready=remote_ready,
@@ -122,7 +112,7 @@ class Orchestrator:
             )
 
         def run_engineer(brief: str, prior: str, token) -> str:
-            return run_principal(
+            return run_main(
                 brief,
                 router=self.router,
                 fetch=fetch,
@@ -142,7 +132,7 @@ class Orchestrator:
             blocked_reason=blocked,
             summarize=run_summary,
             quick=run_quick,
-            principal=run_engineer,
+            main=run_engineer,
             on_token=on_token,
             status=status,
         )
@@ -150,22 +140,22 @@ class Orchestrator:
     def _timeout(self) -> float:
         remaining = self._deadline - time.monotonic()
         if remaining <= 0:
-            raise MultiAgentXError("O pedido excedeu o tempo.")
+            raise MultiAgentXError("The request timed out.")
         return remaining
 
 
 def build_plan(
     message: str,
     *,
-    force_principal: bool,
+    force_main: bool,
     scope: str,
     local_ready: bool,
     remote_ready: bool,
     analyze,
     max_delegations: int = 3,
 ) -> tuple[list[Step], bool]:
-    if force_principal:
-        return [Step("principal", brief=message.strip())], False
+    if force_main:
+        return [Step("main", brief=message.strip())], False
     direct = direct_plan(message)
     if direct is not None:
         return direct, False
@@ -211,7 +201,7 @@ def is_short_request(message: str) -> bool:
     folded = fold(message)
     if _has_task(folded):
         return False
-    return "o que e" in folded or _SHORT.search(folded) is not None
+    return "what is" in folded or _SHORT.search(folded) is not None
 
 
 def fallback_plan(message: str, *, max_delegations: int = 3) -> list[Step]:
@@ -223,7 +213,7 @@ def fallback_plan(message: str, *, max_delegations: int = 3) -> list[Step]:
     if _has_summary(folded):
         for url in extract_urls(message)[:2]:
             steps.append(Step("summarize_url", brief=url, url=url))
-    steps.append(Step("principal", brief=text))
+    steps.append(Step("main", brief=text))
     return steps[:max_delegations]
 
 
@@ -243,15 +233,15 @@ def parse_delegation(text: str, *, max_delegations: int = 3) -> list[Step] | Non
             brief = line[len("sub quick_answer") :].strip()
             steps.append(Step("quick_answer", brief=brief))
             continue
-        if line.startswith("principal"):
-            brief = line[len("principal") :].strip()
-            steps.append(Step("principal", brief=brief))
+        if line == "main" or line.startswith("main "):
+            brief = line[len("main") :].strip()
+            steps.append(Step("main", brief=brief))
             continue
         return None
     if any(step.kind == "quick_answer" for step in steps) and len(steps) != 1:
         return None
-    principals = [index for index, step in enumerate(steps) if step.kind == "principal"]
-    if len(principals) > 1 or (principals and principals[0] != len(steps) - 1):
+    main_steps = [index for index, step in enumerate(steps) if step.kind == "main"]
+    if len(main_steps) > 1 or (main_steps and main_steps[0] != len(steps) - 1):
         return None
     return steps
 
@@ -265,14 +255,14 @@ def execute_plan(
     blocked_reason: str | None,
     summarize,
     quick,
-    principal,
+    main,
     on_token=None,
     status=None,
 ) -> str:
     if scope == "orchestrator" and not worker_ready:
-        return blocked_reason or "O modelo local não está disponível para executar a tarefa."
-    if scope == "principal" and not worker_ready and any(step.kind != "principal" for step in steps):
-        steps = [Step("principal", brief=message.strip())]
+        return blocked_reason or "The local model is not available to run the task."
+    if scope == "main" and not worker_ready and any(step.kind != "main" for step in steps):
+        steps = [Step("main", brief=message.strip())]
     collected: list[str] = []
     result = ""
     for index, step in enumerate(steps):
@@ -280,7 +270,7 @@ def execute_plan(
         token = on_token if last else None
         if step.kind == "summarize_url":
             if not last and status:
-                status("A resumir a página.")
+                status("Summarizing the page.")
             result = summarize(step.url, token)
             collected.append(result)
         elif step.kind == "quick_answer":
@@ -288,7 +278,7 @@ def execute_plan(
             collected.append(result)
         else:
             prior = _clip("\n\n".join(collected))
-            result = principal(step.brief or message.strip(), prior, token)
+            result = main(step.brief or message.strip(), prior, token)
     return result
 
 

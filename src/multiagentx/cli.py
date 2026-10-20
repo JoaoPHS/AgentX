@@ -1,4 +1,4 @@
-"""REPL e pedido único."""
+"""REPL and one-shot requests."""
 
 from __future__ import annotations
 
@@ -25,12 +25,12 @@ In the chat:
   /model local
   /model all
   /model orchestrator
-  /model principal
-  /engineer <task>            send the task straight to the principal
+  /model main
+  /engineer <task>            send the task straight to the main agent
   /exit
 """
 
-_REMOTE_SCOPES = {"all", "orchestrator", "principal"}
+_REMOTE_SCOPES = {"all", "orchestrator", "main"}
 
 
 class Runtime:
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         except MultiAgentXError as exc:
             _report(exc)
             return 1
-        print(f"Config criada em {path}")
+        print(f"Config written to {path}")
         return 0
     try:
         config = load_config()
@@ -117,7 +117,7 @@ def run_line(runtime: Runtime, line: str) -> str:
     try:
         result = runtime.orchestrator.handle(
             action[1],
-            force_principal=action[2],
+            force_main=action[2],
             history=trim_history(runtime.session.history, runtime.config.limits.history_chars),
             on_token=on_token,
             status=status,
@@ -179,7 +179,7 @@ def apply_model_command(argument: str, session: Session, config: AppConfig | Non
             session.scope = chosen
             return f"Session: {parts[0]}, scope {chosen}."
     return (
-        "Use /model local, /model all, /model orchestrator, or /model principal. "
+        "Use /model local, /model all, /model orchestrator, or /model main. "
         "The scope applies to the remote key in the config."
     )
 
@@ -226,4 +226,4 @@ def _report_unexpected() -> None:
     if os.environ.get("MULTIAGENTX_DEBUG") == "1":
         traceback.print_exc()
         return
-    print("O pedido falhou.", file=sys.stderr)
+    print("The request failed.", file=sys.stderr)

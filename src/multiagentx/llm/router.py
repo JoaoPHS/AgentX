@@ -1,4 +1,4 @@
-"""Escolhe o modelo conforme o papel e o âmbito da chave."""
+"""Pick a model for a role and a key scope."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from multiagentx.config import AppConfig
 from multiagentx.errors import MultiAgentXError
 
-ROLES = ("orquestrador", "subagente", "principal")
+ROLES = ("orchestrator", "subagent", "main")
 
 
 @dataclass
@@ -31,9 +31,9 @@ def role_uses_remote(scope: str, role: str) -> bool:
     if scope == "all":
         return True
     if scope == "orchestrator":
-        return role == "orquestrador"
-    if scope == "principal":
-        return role == "principal"
+        return role == "orchestrator"
+    if scope == "main":
+        return role == "main"
     return False
 
 

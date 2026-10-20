@@ -1,4 +1,4 @@
-"""Cliente HTTP no formato OpenAI, com leitura de SSE."""
+"""OpenAI-compatible HTTP client with SSE parsing."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def stream_chat(
                             on_token(piece)
     except httpx.HTTPError as exc:
         raise MultiAgentXError(
-            "O modelo remoto falhou." if remote else "O modelo local falhou."
+            "The remote model failed." if remote else "The local model failed."
         ) from exc
     return "".join(parts)
 
@@ -84,7 +84,7 @@ def _raise_for_status(status: int, *, remote: bool) -> None:
     if status < 400:
         return
     if remote and status in {401, 403}:
-        raise MultiAgentXError("A chave foi recusada.")
+        raise MultiAgentXError("The key was rejected.")
     if remote and status == 404:
-        raise MultiAgentXError("O modelo remoto não foi encontrado.")
-    raise MultiAgentXError("O modelo remoto falhou." if remote else "O modelo local falhou.")
+        raise MultiAgentXError("The remote model was not found.")
+    raise MultiAgentXError("The remote model failed." if remote else "The local model failed.")

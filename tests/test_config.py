@@ -15,10 +15,10 @@ def test_toml_and_env_key(tmp_path, monkeypatch):
         """
 [routing]
 remote_provider = "anthropic"
-remote_scope = "principal"
+remote_scope = "main"
 
 [anthropic]
-model = "claude-da-config"
+model = "claude-from-config"
 api_key = "file-secret"
 
 [local]
@@ -29,9 +29,9 @@ context = 1536
     )
     monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
     config = load_config(path)
-    assert config.routing.remote_scope == "principal"
+    assert config.routing.remote_scope == "main"
     assert config.routing.remote_provider == "anthropic"
-    assert config.anthropic.model == "claude-da-config"
+    assert config.anthropic.model == "claude-from-config"
     assert config.anthropic.api_key == SECRET
     assert config.local.context == 1536
     assert SECRET not in repr(config)
@@ -41,18 +41,17 @@ context = 1536
 def test_invalid_scope_hides_secret(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text(
-        f'[routing]\nremote_scope = "ambos"\n[anthropic]\napi_key = "{SECRET}"\n',
+        f'[routing]\nremote_scope = "both"\n[anthropic]\napi_key = "{SECRET}"\n',
         encoding="utf-8",
     )
     with pytest.raises(MultiAgentXError) as caught:
         load_config(path)
-    assert "Âmbito" not in str(caught.value)
-    assert "scope" in str(caught.value).lower() or "Unknown" in str(caught.value)
+    assert "Unknown key scope" in str(caught.value)
     assert SECRET not in str(caught.value)
 
 
 def test_missing_file_uses_defaults(tmp_path):
-    config = load_config(tmp_path / "ausente.toml")
+    config = load_config(tmp_path / "missing.toml")
     assert config.routing.remote_scope == "local"
     assert config.governor.min_mem_mb == 700
     assert config.orchestrator.max_delegations == 3
@@ -72,8 +71,8 @@ def test_init_writes_template_without_secrets(tmp_path):
 
 
 def test_env_config_path(tmp_path, monkeypatch):
-    path = tmp_path / "outra.toml"
-    path.write_text('[routing]\nremote_scope = "tudo"\n', encoding="utf-8")
+    path = tmp_path / "other.toml"
+    path.write_text('[routing]\nremote_scope = "all"\n', encoding="utf-8")
     monkeypatch.setenv("MULTIAGENTX_CONFIG", str(path))
     from multiagentx.config import default_config_path
 

@@ -1,4 +1,4 @@
-"""Agente principal: executa o que as rotinas não fecham."""
+"""Main agent: finishes what the routines leave open."""
 
 from __future__ import annotations
 
@@ -9,22 +9,22 @@ from multiagentx.agents.subagents import summarize_url
 from multiagentx.errors import MultiAgentXError
 from multiagentx.tools.fetch import excerpt
 
-PRINCIPAL_SYSTEM = (
-    "És o engenheiro. Executa só a parte da tarefa que te foi pedida. "
-    "Responde na mesma língua da mensagem do utilizador. "
-    "Usa o material já obtido e não o refaças. Não anuncies o agente. "
-    "Se precisares de uma página que ainda não tens, responde só com uma linha:\n"
+MAIN_SYSTEM = (
+    "You are the engineer. Carry out only the part of the task you were given. "
+    "Answer in English. "
+    "Use material already gathered and do not redo it. Do not announce the agent. "
+    "If you need a page you do not have yet, reply with only one line:\n"
     'TOOL fetch_article {"url":"https://..."}\n'
-    "ou\n"
+    "or\n"
     'TOOL summarize_url {"url":"https://..."}\n'
-    "Caso contrário, responde com o resultado e não uses ferramentas."
+    "Otherwise reply with the result and do not use tools."
 )
 
-FINAL_INSTRUCTION = "Não uses ferramentas. Responde já com o resultado da tarefa."
+FINAL_INSTRUCTION = "Do not use tools. Reply now with the result of the task."
 
 _TOOL = re.compile(r"^TOOL\s+(fetch_article|summarize_url)\s+(\{.*\})\s*$", re.DOTALL)
 
-LIMIT_MESSAGE = "Não foi possível concluir a tarefa dentro do limite de passos."
+LIMIT_MESSAGE = "The task could not be finished within the step limit."
 
 
 def parse_tool(text: str) -> tuple[str, str] | None:
@@ -40,7 +40,7 @@ def parse_tool(text: str) -> tuple[str, str] | None:
     return match.group(1), payload["url"]
 
 
-def run_principal(
+def run_main(
     brief: str,
     *,
     router,
@@ -51,24 +51,24 @@ def run_principal(
     history: list[dict] | None = None,
     on_token=None,
 ) -> str:
-    reason = router.block_reason("principal")
+    reason = router.block_reason("main")
     if reason:
         return reason
-    user = brief if not prior else f"{brief}\n\nMaterial já obtido:\n{prior}"
-    messages: list[dict] = [{"role": "system", "content": PRINCIPAL_SYSTEM}]
+    user = brief if not prior else f"{brief}\n\nMaterial already gathered:\n{prior}"
+    messages: list[dict] = [{"role": "system", "content": MAIN_SYSTEM}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user})
     used = 0
     while True:
-        forced = used >= limits.principal_max_steps
+        forced = used >= limits.main_max_steps
         call = list(messages)
         if forced:
             call.append({"role": "user", "content": FINAL_INSTRUCTION})
         emitter = _hide_tools(on_token)
         text = router.complete(
-            "principal",
+            "main",
             call,
-            max_tokens=limits.principal_max_tokens,
+            max_tokens=limits.main_max_tokens,
             temperature=0.2,
             timeout=timeout,
             on_token=emitter,
@@ -77,7 +77,7 @@ def run_principal(
         if tool is None:
             if forced and parse_tool(text):
                 return LIMIT_MESSAGE
-            return text or "O modelo não devolveu texto."
+            return text or "The model returned no text."
         name, url = tool
         used += 1
         observation = _run_tool(
@@ -89,7 +89,7 @@ def run_principal(
             timeout=timeout,
         )
         messages.append({"role": "assistant", "content": text})
-        messages.append({"role": "user", "content": f"Resultado de {name}:\n{observation}"})
+        messages.append({"role": "user", "content": f"Result of {name}:\n{observation}"})
 
 
 def _run_tool(name: str, url: str, *, router, fetch, limits, timeout: float) -> str:

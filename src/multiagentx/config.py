@@ -1,4 +1,4 @@
-"""Leitura da config TOML e âmbito da chave remota."""
+"""TOML config and where a remote key may be used."""
 
 from __future__ import annotations
 
@@ -10,15 +10,13 @@ from pathlib import Path
 
 from multiagentx.errors import MultiAgentXError
 
-SCOPES = ("local", "all", "orchestrator", "principal")
+SCOPES = ("local", "all", "orchestrator", "main")
 PROVIDERS = ("openrouter", "anthropic")
 _SCOPE_ALIASES = {
     "local": "local",
     "all": "all",
-    "tudo": "all",
     "orchestrator": "orchestrator",
-    "orquestrador": "orchestrator",
-    "principal": "principal",
+    "main": "main",
 }
 
 TEMPLATE = """\
@@ -36,7 +34,7 @@ idle_seconds = 120
 [routing]
 # openrouter or anthropic. The scope applies to whichever key you set.
 remote_provider = "anthropic"
-# local, all, orchestrator, or principal
+# local, all, orchestrator, or main
 remote_scope = "local"
 
 [openrouter]
@@ -119,8 +117,8 @@ class LimitSettings:
     request_timeout_seconds: int = 180
     quick_max_tokens: int = 256
     summary_max_tokens: int = 400
-    principal_max_tokens: int = 512
-    principal_max_steps: int = 4
+    main_max_tokens: int = 512
+    main_max_steps: int = 4
     chunk_chars: int = 3500
     max_chunks: int = 6
     history_chars: int = 3000
@@ -153,7 +151,7 @@ def default_config_path() -> Path:
 def init_config(path: Path | None = None) -> Path:
     destination = path or default_config_path()
     if destination.exists():
-        raise MultiAgentXError("A config já existe.")
+        raise MultiAgentXError("The config file already exists.")
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
@@ -169,9 +167,9 @@ def load_config(path: Path | None = None) -> AppConfig:
         try:
             raw = tomllib.loads(destination.read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError as exc:
-            raise MultiAgentXError("A config não é TOML válido.") from exc
+            raise MultiAgentXError("The config file is not valid TOML.") from exc
         if not isinstance(raw, dict):
-            raise MultiAgentXError("A config não é TOML válido.")
+            raise MultiAgentXError("The config file is not valid TOML.")
         _apply(config, raw)
     _apply_env(config)
     _validate(config)
@@ -184,7 +182,7 @@ def provider_settings(config: AppConfig, name: str) -> ProviderSettings:
     if name == "anthropic":
         return config.anthropic
     raise MultiAgentXError(
-        "Provider remoto desconhecido. Usa openrouter ou anthropic."
+        "Unknown remote provider. Use openrouter or anthropic."
     )
 
 
@@ -193,7 +191,7 @@ def _warn_permissions(path: Path) -> None:
         return
     mode = path.stat().st_mode
     if mode & 0o077:
-        print("Aviso: a config devia ter permissões 600.", file=sys.stderr)
+        print("Warning: the config file should have mode 600.", file=sys.stderr)
 
 
 def _apply(config: AppConfig, raw: dict) -> None:
@@ -250,8 +248,8 @@ def _apply(config: AppConfig, raw: dict) -> None:
         "request_timeout_seconds",
         "quick_max_tokens",
         "summary_max_tokens",
-        "principal_max_tokens",
-        "principal_max_steps",
+        "main_max_tokens",
+        "main_max_steps",
         "chunk_chars",
         "max_chunks",
         "history_chars",
@@ -286,7 +284,7 @@ def _validate(config: AppConfig) -> None:
     scope = normalize_scope(config.routing.remote_scope)
     if scope is None:
         raise MultiAgentXError(
-            "Unknown key scope. Use local, all, orchestrator, or principal."
+            "Unknown key scope. Use local, all, orchestrator, or main."
         )
     config.routing.remote_scope = scope
 
@@ -296,7 +294,7 @@ def _table(raw: dict, name: str) -> dict:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise MultiAgentXError(f"A secção {name} da config está mal formada.")
+        raise MultiAgentXError(f"The config section {name} is malformed.")
     return value
 
 
@@ -305,7 +303,7 @@ def _str(table: dict, key: str, default: str) -> str:
         return default
     value = table[key]
     if not isinstance(value, str):
-        raise MultiAgentXError(f"O valor de {key} na config tem de ser texto.")
+        raise MultiAgentXError(f"The config value {key} must be text.")
     return value
 
 
@@ -314,5 +312,5 @@ def _int(table: dict, key: str, default: int) -> int:
         return default
     value = table[key]
     if isinstance(value, bool) or not isinstance(value, int):
-        raise MultiAgentXError(f"O valor de {key} na config tem de ser um número inteiro.")
+        raise MultiAgentXError(f"The config value {key} must be an integer.")
     return value

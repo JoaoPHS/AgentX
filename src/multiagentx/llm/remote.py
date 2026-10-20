@@ -1,4 +1,4 @@
-"""OpenRouter e Anthropic."""
+"""OpenRouter and Anthropic."""
 
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ class RemoteClient:
     def block_reason(self) -> str | None:
         name = self.provider_name()
         if name == "local":
-            return "O âmbito local não usa chave remota."
+            return "Local scope does not use a remote key."
         settings = provider_settings(self.config, name)
-        label = "Claude" if name == "anthropic" else "OpenRouter"
+        label = "Anthropic" if name == "anthropic" else "OpenRouter"
         if not settings.api_key:
-            return f"Falta a chave {label}."
+            return f"Missing the {label} key."
         if not settings.model:
-            return f"Falta o id do modelo {label} na config."
+            return f"Missing the {label} model id in the config."
         return None
 
     def complete(
@@ -106,11 +106,11 @@ class RemoteClient:
                     json=payload,
                 ) as response:
                     if response.status_code in {401, 403}:
-                        raise MultiAgentXError("A chave foi recusada.")
+                        raise MultiAgentXError("The key was rejected.")
                     if response.status_code == 404:
-                        raise MultiAgentXError("O modelo remoto não foi encontrado.")
+                        raise MultiAgentXError("The remote model was not found.")
                     if response.status_code >= 400:
-                        raise MultiAgentXError("O modelo remoto falhou.")
+                        raise MultiAgentXError("The remote model failed.")
                     for line in response.iter_lines():
                         for piece in parse_anthropic_line(line):
                             parts.append(piece)
@@ -119,7 +119,7 @@ class RemoteClient:
         except MultiAgentXError:
             raise
         except httpx.HTTPError as exc:
-            raise MultiAgentXError("O modelo remoto falhou.") from exc
+            raise MultiAgentXError("The remote model failed.") from exc
         return "".join(parts)
 
 
@@ -142,7 +142,7 @@ def _split_system(messages: list[dict]) -> tuple[str, list[dict]]:
         else:
             dialogue.append({"role": role, "content": content})
     if dialogue and dialogue[0]["role"] != "user":
-        dialogue.insert(0, {"role": "user", "content": "Continua."})
+        dialogue.insert(0, {"role": "user", "content": "Continue."})
     if not dialogue:
-        dialogue = [{"role": "user", "content": "Continua."}]
+        dialogue = [{"role": "user", "content": "Continue."}]
     return "\n".join(system_parts), dialogue

@@ -47,16 +47,16 @@ class Remote:
         self.calls.append(messages)
         token = kwargs.get("on_token")
         if token:
-            token("remoto")
-        return "remoto"
+            token("remote")
+        return "remote"
 
 
 def _router(scope, *, local_reason=None, remote_reason=None, provider="anthropic"):
     config = AppConfig()
     config.routing.remote_scope = scope
     config.routing.remote_provider = provider
-    config.anthropic.api_key = "presente"
-    config.anthropic.model = "claude-teste"
+    config.anthropic.api_key = "present"
+    config.anthropic.model = "claude-test"
     session = Session()
     local = Local(local_reason)
     remote = Remote(remote_reason)
@@ -64,54 +64,54 @@ def _router(scope, *, local_reason=None, remote_reason=None, provider="anthropic
 
 
 def test_scope_matrix():
-    assert role_uses_remote("local", "principal") is False
-    assert role_uses_remote("all", "subagente") is True
-    assert role_uses_remote("orchestrator", "orquestrador") is True
-    assert role_uses_remote("orchestrator", "principal") is False
-    assert role_uses_remote("principal", "principal") is True
-    assert role_uses_remote("principal", "subagente") is False
+    assert role_uses_remote("local", "main") is False
+    assert role_uses_remote("all", "subagent") is True
+    assert role_uses_remote("orchestrator", "orchestrator") is True
+    assert role_uses_remote("orchestrator", "main") is False
+    assert role_uses_remote("main", "main") is True
+    assert role_uses_remote("main", "subagent") is False
 
 
 def test_local_scope_ignores_the_key():
     router, local, remote = _router("local")
-    for role in ("orquestrador", "subagente", "principal"):
-        assert router.complete(role, [{"role": "user", "content": "oi"}]) == "local"
+    for role in ("orchestrator", "subagent", "main"):
+        assert router.complete(role, [{"role": "user", "content": "hi"}]) == "local"
     assert remote.calls == []
     assert local.starts == 3
 
 
 def test_all_uses_the_key_and_does_not_start_the_server():
     router, local, remote = _router("all")
-    for role in ("orquestrador", "subagente", "principal"):
-        assert router.complete(role, [{"role": "user", "content": "oi"}]) == "remoto"
+    for role in ("orchestrator", "subagent", "main"):
+        assert router.complete(role, [{"role": "user", "content": "hi"}]) == "remote"
     assert local.starts == 0
     assert len(remote.calls) == 3
 
 
 def test_orchestrator_scope_is_only_the_analysis():
     router, local, remote = _router("orchestrator")
-    assert router.complete("orquestrador", []) == "remoto"
-    assert router.complete("principal", []) == "local"
-    assert router.complete("subagente", []) == "local"
+    assert router.complete("orchestrator", []) == "remote"
+    assert router.complete("main", []) == "local"
+    assert router.complete("subagent", []) == "local"
     assert local.starts == 2
     assert len(remote.calls) == 1
 
 
-def test_principal_scope_keeps_routines_local_and_folds_when_local_is_down():
-    router, local, remote = _router("principal", local_reason="sem ram")
-    assert router.block_reason("principal") is None
-    assert router.block_reason("subagente") == "sem ram"
-    assert router.complete("principal", []) == "remoto"
-    with pytest.raises(MultiAgentXError, match="sem ram"):
-        router.complete("subagente", [])
+def test_main_scope_keeps_routines_local_and_folds_when_local_is_down():
+    router, local, remote = _router("main", local_reason="low memory")
+    assert router.block_reason("main") is None
+    assert router.block_reason("subagent") == "low memory"
+    assert router.complete("main", []) == "remote"
+    with pytest.raises(MultiAgentXError, match="low memory"):
+        router.complete("subagent", [])
     assert local.starts == 0
     assert len(remote.calls) == 1
 
 
 def test_missing_key_is_not_replaced_by_the_other_provider():
-    router, _local, _remote = _router("all", remote_reason="Falta a chave Claude.")
-    with pytest.raises(MultiAgentXError, match="Claude"):
-        router.complete("principal", [])
+    router, _local, _remote = _router("all", remote_reason="Missing the Anthropic key.")
+    with pytest.raises(MultiAgentXError, match="Anthropic"):
+        router.complete("main", [])
 
 
 def test_session_commands_do_not_persist_secrets():
@@ -134,7 +134,7 @@ def test_session_commands_do_not_persist_secrets():
 def test_server_command_stays_on_loopback():
     command = build_server_command(
         "llama-server",
-        "/data/modelo.gguf",
+        "/data/model.gguf",
         context=2048,
         threads=2,
         port=18080,
@@ -147,10 +147,10 @@ def test_server_command_stays_on_loopback():
 
 
 def test_stream_parsers():
-    openai = 'data: {"choices":[{"delta":{"content":"Olá"}}]}'
-    assert list(parse_openai_line(openai)) == ["Olá"]
+    openai = 'data: {"choices":[{"delta":{"content":"Hello"}}]}'
+    assert list(parse_openai_line(openai)) == ["Hello"]
     assert list(parse_openai_line("data: [DONE]")) == []
     anthropic = (
-        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Olá"}}'
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}'
     )
-    assert list(parse_anthropic_line(anthropic)) == ["Olá"]
+    assert list(parse_anthropic_line(anthropic)) == ["Hello"]

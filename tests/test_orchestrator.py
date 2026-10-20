@@ -12,11 +12,11 @@ from multiagentx.tools.fetch import Page
 
 def _plan(message, *, scope="local", local_ready=True, remote_ready=False, analyze=None, force=False):
     def explode(_text):
-        raise AssertionError("a análise não devia correr")
+        raise AssertionError("analysis should not run")
 
     return build_plan(
         message,
-        force_principal=force,
+        force_main=force,
         scope=scope,
         local_ready=local_ready,
         remote_ready=remote_ready,
@@ -31,26 +31,26 @@ def test_obvious_routines_skip_analysis():
     short, called = _plan("define API")
     assert called is False
     assert short[0].kind == "quick_answer"
-    translated, called = _plan("traduz bom dia")
+    translated, called = _plan("translate good morning")
     assert called is False
     assert translated[0].kind == "quick_answer"
-    rewritten, _called = _plan("reescreve esta frase curta")
+    rewritten, _called = _plan("rewrite this short sentence")
     assert rewritten[0].kind == "quick_answer"
 
 
-def test_mixed_task_is_a_routine_then_the_principal():
+def test_mixed_task_is_a_routine_then_the_main():
     def analyze(_text):
         return (
             "sub summarize_url https://example.com/a\n"
-            "principal decidir se vale a pena"
+            "main decide whether it is worth it"
         )
 
     steps, called = _plan(
-        "resume https://example.com/a e compara com o manual",
+        "summarize https://example.com/a and compare it with the manual",
         analyze=analyze,
     )
     assert called is True
-    assert [step.kind for step in steps] == ["summarize_url", "principal"]
+    assert [step.kind for step in steps] == ["summarize_url", "main"]
 
     seen = {}
 
@@ -61,10 +61,10 @@ def test_mixed_task_is_a_routine_then_the_principal():
         def complete(self, role, messages, **_kwargs):
             blob = "\n".join(message["content"] for message in messages)
             seen.setdefault(role, []).append(blob)
-            return "resumo curto"
+            return "short summary"
 
     def fetch(_url):
-        return Page("https://example.com/a", "SEGREDO o facto importante", False)
+        return Page("https://example.com/a", "SECRET the important fact", False)
 
     def summarize(url, _token):
         return summarize_url(
@@ -78,72 +78,72 @@ def test_mixed_task_is_a_routine_then_the_principal():
     def engineer(brief, prior, _token):
         seen["brief"] = brief
         seen["prior"] = prior
-        return "vale a pena"
+        return "worth it"
 
     result = execute_plan(
         steps,
-        "resume https://example.com/a e compara com o manual",
+        "summarize https://example.com/a and compare it with the manual",
         scope="local",
         worker_ready=True,
         blocked_reason=None,
         summarize=summarize,
-        quick=lambda *_args: "nao",
-        principal=engineer,
+        quick=lambda *_args: "no",
+        main=engineer,
     )
-    assert result == "vale a pena"
-    assert seen["prior"] == "resumo curto"
-    assert "SEGREDO" not in seen["prior"]
-    assert "SEGREDO" not in seen["brief"]
-    assert "SEGREDO" in seen["subagente"][0]
+    assert result == "worth it"
+    assert seen["prior"] == "short summary"
+    assert "SECRET" not in seen["prior"]
+    assert "SECRET" not in seen["brief"]
+    assert "SECRET" in seen["subagent"][0]
 
 
-def test_code_and_planning_without_a_page_stay_with_the_principal():
+def test_code_and_planning_without_a_page_stay_with_the_main():
     def analyze(_text):
-        return "principal escreve o script"
+        return "main write the script"
 
-    steps, called = _plan("escreve código para ler um csv", analyze=analyze)
+    steps, called = _plan("write code to read a csv", analyze=analyze)
     assert called is True
-    assert [step.kind for step in steps] == ["principal"]
+    assert [step.kind for step in steps] == ["main"]
     offline, called = _plan(
-        "planear a migração",
-        scope="principal",
+        "plan the migration",
+        scope="main",
         local_ready=False,
     )
     assert called is False
-    assert [step.kind for step in offline] == ["principal"]
+    assert [step.kind for step in offline] == ["main"]
 
 
 def test_quick_answer_is_not_chained_and_bad_analysis_is_rejected():
-    assert parse_delegation("sub quick_answer define API\nprincipal faz o resto") is None
-    assert parse_delegation("uma frase de prosa\nprincipal faz") is None
+    assert parse_delegation("sub quick_answer define API\nmain do the rest") is None
+    assert parse_delegation("this is just prose\nmain does the work") is None
     long_plan = "\n".join(
         [
             "sub summarize_url https://example.com/a",
             "sub summarize_url https://example.com/b",
             "sub summarize_url https://example.com/c",
-            "principal fecha",
+            "main close it",
         ]
     )
     assert parse_delegation(long_plan) is None
 
     def analyze(_text):
-        return "Isto é prosa, não um plano."
+        return "This is prose, not a plan."
 
-    steps, called = _plan("analisar o desenho", analyze=analyze)
+    steps, called = _plan("analyze the design", analyze=analyze)
     assert called is True
-    assert [step.kind for step in steps] == ["principal"]
+    assert [step.kind for step in steps] == ["main"]
 
 
 def test_keyword_fallback_does_not_call_the_remote_analysis():
     steps, called = _plan(
-        "resume https://example.com/a e https://example.com/b e analisar",
-        scope="principal",
+        "summarize https://example.com/a and https://example.com/b and analyze",
+        scope="main",
         local_ready=False,
         remote_ready=True,
     )
     assert called is False
-    assert [step.kind for step in steps] == ["summarize_url", "summarize_url", "principal"]
-    chat, called = _plan("olá", scope="local", local_ready=False, remote_ready=True)
+    assert [step.kind for step in steps] == ["summarize_url", "summarize_url", "main"]
+    chat, called = _plan("hello", scope="local", local_ready=False, remote_ready=True)
     assert called is False
     assert chat[0].kind == "quick_answer"
 
@@ -153,66 +153,66 @@ def test_remote_scopes_send_the_analysis_to_the_key():
 
     def analyze(text):
         used.append(text)
-        return "principal trata do que falta"
+        return "main finish what is left"
 
     for scope in ("orchestrator", "all"):
         steps, called = _plan(
-            "comparar as duas opções de cache",
+            "compare the two cache options",
             scope=scope,
             local_ready=False,
             remote_ready=True,
             analyze=analyze,
         )
         assert called is True
-        assert steps[0].kind == "principal"
+        assert steps[0].kind == "main"
     assert len(used) == 2
 
 
 def test_engineer_command_skips_analysis():
-    steps, called = _plan("explica o módulo", force=True, local_ready=True)
+    steps, called = _plan("explain the module", force=True, local_ready=True)
     assert called is False
-    assert steps[0].kind == "principal"
-    assert steps[0].brief == "explica o módulo"
+    assert steps[0].kind == "main"
+    assert steps[0].brief == "explain the module"
 
 
-def test_principal_scope_without_local_routines_hands_the_rest_over():
+def test_main_scope_without_local_routines_hands_the_rest_over():
     steps, _called = _plan(
-        "resume https://example.com/a e comparar",
-        scope="principal",
+        "summarize https://example.com/a and compare",
+        scope="main",
         local_ready=False,
     )
 
     def summarize(_url, _token):
-        raise AssertionError("a rotina não devia usar a chave")
+        raise AssertionError("the routine must not use the key")
 
     def engineer(brief, prior, _token):
-        assert "comparar" in brief or "resume" in brief
+        assert "compare" in brief or "summarize" in brief
         assert prior == ""
-        return "feito no principal"
+        return "done by the main"
 
     result = execute_plan(
         steps,
-        "resume https://example.com/a e comparar",
-        scope="principal",
+        "summarize https://example.com/a and compare",
+        scope="main",
         worker_ready=False,
-        blocked_reason="sem modelo local",
+        blocked_reason="no local model",
         summarize=summarize,
-        quick=lambda *_args: "nao",
-        principal=engineer,
+        quick=lambda *_args: "no",
+        main=engineer,
     )
-    assert result == "feito no principal"
+    assert result == "done by the main"
 
 
 def test_orchestrator_scope_does_not_widen_the_key():
     result = execute_plan(
         [steps_only()],
-        "tarefa",
+        "task",
         scope="orchestrator",
         worker_ready=False,
-        blocked_reason="Memória livre abaixo de 700 MB. O modelo local não arranca.",
-        summarize=lambda *_args: "nao",
-        quick=lambda *_args: "nao",
-        principal=lambda *_args: "nao",
+        blocked_reason="Free memory is below 700 MB. The local model will not start.",
+        summarize=lambda *_args: "no",
+        quick=lambda *_args: "no",
+        main=lambda *_args: "no",
     )
     assert "700" in result
 
@@ -220,4 +220,4 @@ def test_orchestrator_scope_does_not_widen_the_key():
 def steps_only():
     from multiagentx.orchestrator import Step
 
-    return Step("principal", brief="tarefa")
+    return Step("main", brief="task")

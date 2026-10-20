@@ -1,4 +1,4 @@
-from multiagentx.agents.principal import FINAL_INSTRUCTION, LIMIT_MESSAGE, run_principal
+from multiagentx.agents.main_agent import FINAL_INSTRUCTION, LIMIT_MESSAGE, run_main
 from multiagentx.config import LimitSettings
 from multiagentx.tools.fetch import Page
 
@@ -17,20 +17,20 @@ class Scripted:
 
 
 def _limits():
-    return LimitSettings(principal_max_steps=4, principal_max_tokens=64)
+    return LimitSettings(main_max_steps=4, main_max_tokens=64)
 
 
 def test_answer_without_a_page_returns_immediately():
-    router = Scripted(["Três passos: ler, validar, gravar."])
+    router = Scripted(["Three steps: read, validate, write."])
     fetched = []
-    result = run_principal(
-        "lista os passos",
+    result = run_main(
+        "list the steps",
         router=router,
         fetch=lambda url: fetched.append(url),
         limits=_limits(),
         timeout=5,
     )
-    assert result == "Três passos: ler, validar, gravar."
+    assert result == "Three steps: read, validate, write."
     assert router.calls and len(router.calls) == 1
     assert fetched == []
 
@@ -43,15 +43,15 @@ def test_tool_loop_stops_at_four_and_asks_for_the_result():
         'TOOL fetch_article {"url":"https://example.com/4"}',
         'TOOL fetch_article {"url":"https://example.com/5"}',
     ]
-    router = Scripted([*tools, "resultado final"])
+    router = Scripted([*tools, "final result"])
     fetched = []
 
     def fetch(url):
         fetched.append(url)
-        return Page(url, f"texto {url}", False)
+        return Page(url, f"text {url}", False)
 
-    result = run_principal(
-        "junta as páginas",
+    result = run_main(
+        "merge the pages",
         router=router,
         fetch=fetch,
         limits=_limits(),
@@ -69,15 +69,15 @@ def test_final_answer_is_kept_when_it_is_not_a_tool():
         'TOOL fetch_article {"url":"https://example.com/2"}',
         'TOOL fetch_article {"url":"https://example.com/3"}',
         'TOOL fetch_article {"url":"https://example.com/4"}',
-        "O resultado são quatro notas.",
+        "The result is four notes.",
     ]
     router = Scripted(tools)
-    result = run_principal(
-        "resume as notas",
+    result = run_main(
+        "summarize the notes",
         router=router,
-        fetch=lambda url: Page(url, "nota", False),
+        fetch=lambda url: Page(url, "note", False),
         limits=_limits(),
         timeout=5,
     )
-    assert result == "O resultado são quatro notas."
+    assert result == "The result is four notes."
     assert FINAL_INSTRUCTION in router.calls[-1][-1]["content"]

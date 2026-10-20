@@ -7,7 +7,7 @@ A link summary is one fixed routine, not the product. A page is downloaded only 
 ```text
 multiagentx "plan a script that reads a CSV and writes a summary"
 multiagentx "compare two ways to validate a form"
-multiagentx "resume https://example.com/article"
+multiagentx "summarize https://example.com/article"
 ```
 
 There is no graphical interface and no real browser. The local model is a separate `llama-server` process. It starts for a request and exits after it sits idle, so the phone does not keep the weights in RAM.
@@ -19,9 +19,9 @@ flowchart TD
   rules -->|mixed or open task| analyze[Short analysis]
   analyze --> plan[At most three steps]
   plan --> routine
-  plan --> principal[Principal agent]
+  plan --> mainAgent[Main agent]
   routine --> router[Router]
-  principal --> router
+  mainAgent --> router
   router --> local[llama-server]
   router --> remote[Your API key, only in the scope you chose]
 ```
@@ -62,7 +62,7 @@ The binary is `build/bin/llama-server`. Put it on `PATH`, or set `local.binary` 
 
 ## Local model
 
-For a modest phone that still answers in Portuguese, use **Qwen2.5-1.5B-Instruct**, GGUF **Q4_K_M**. Download the file yourself and put its path in the config. The app does not fetch the GGUF.
+For a modest phone, use **Qwen2.5-1.5B-Instruct**, GGUF **Q4_K_M**. Download the file yourself and put its path in the config. The app does not fetch the GGUF.
 
 ## Configuration
 
@@ -82,7 +82,7 @@ idle_seconds = 120
 
 [routing]
 remote_provider = "openrouter"   # or anthropic
-remote_scope = "local"           # local, all, orchestrator, or principal
+remote_scope = "local"           # local, all, orchestrator, or main
 
 [openrouter]
 base_url = "https://openrouter.ai/api/v1"
@@ -98,9 +98,9 @@ The remote model id stays in the config. There is no fixed slug in the code. Ope
 | Scope | Where the key is used |
 | --- | --- |
 | `local` | Nowhere. This is the default, even when a key is present. |
-| `all` | Orchestrator, routines, and the principal. `llama-server` stays off for that request. |
+| `all` | Orchestrator, routines, and the main agent. `llama-server` stays off for that request. |
 | `orchestrator` | Only the analysis that splits the task. Everything else stays on the phone. |
-| `principal` | Only the principal agent. Analysis stays local, or falls back to rules. |
+| `main` | Only the main agent. Analysis stays local, or falls back to rules. |
 
 Keys come from `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, or `api_key` in the matching section. An environment variable wins over the file. Keys are not written to logs or error text.
 
@@ -111,10 +111,10 @@ Point `MULTIAGENTX_CONFIG` at another file when you need one.
 The orchestrator does not answer you. It splits the task so a larger model only sees what a routine cannot finish.
 
 1. If the whole message is already a routine, no model is spent on routing. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, and rewrite go to `quick_answer`.
-2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Routines run first. The principal, if needed, is last and receives the routine output instead of redoing the fetch or the summary.
-3. With scope `orchestrator` or `all`, that analysis uses your remote key. With `local` or `principal`, it uses the local model. If the orchestrator has no model, keyword rules choose the path. Another key is not spent just to decide.
+2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Routines run first. The main agent, if needed, is last and receives the routine output instead of redoing the fetch or the summary.
+3. With scope `orchestrator` or `all`, that analysis uses your remote key. With `local` or `main`, it uses the local model. If the orchestrator has no model, keyword rules choose the path. Another key is not spent just to decide.
 
-`/engineer` followed by the task skips analysis and sends the whole task to the principal.
+`/engineer` followed by the task skips analysis and sends the whole task to the main agent.
 
 The server you start listens only on `127.0.0.1`. Before it loads the model, MultiAgentX reads `MemAvailable` from `/proc/meminfo` and refuses to start below 700 MB. Threads are half the cores, capped at 2. If `termux-battery-status` exists and the battery is under 20% while unplugged, it drops to 1 thread and a context of 1024. The process runs at low priority. After 120 seconds without use it is stopped. One generation runs at a time.
 
@@ -124,20 +124,20 @@ Page downloads stop at 2 MB, time out, and reject URLs that resolve to private o
 
 With no arguments, `multiagentx` opens a session. History lasts only for that session, and replies stream as they are generated. `/exit` or Ctrl-D quits and stops the server.
 
-Replies follow the language of your message.
+Replies are in English.
 
 ```text
 /model
 /model local
 /model all
 /model orchestrator
-/model principal
+/model main
 /engineer review this function and say what is missing
 ```
 
 `/model` changes the session only. It does not rewrite the config. Alone, it prints the current scope and the configured provider, and never the key.
 
-`/model all` uses whichever remote key is already in the config. To pick between two configured providers, name it: `/model openrouter principal` or `/model anthropic all`.
+`/model all` uses whichever remote key is already in the config. To pick between two configured providers, name it: `/model openrouter main` or `/model anthropic all`.
 
 If a summary routine has neither a local model nor a key, you still get the extracted text plus the reason. Other tasks stop with the reason instead of pretending the work was done.
 

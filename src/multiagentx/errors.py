@@ -1,2 +1,2 @@
 class MultiAgentXError(Exception):
-    """Erro que pode ser mostrado ao utilizador."""
+    """Error that can be shown to the user."""

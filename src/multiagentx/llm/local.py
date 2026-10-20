@@ -1,4 +1,4 @@
-"""Processo llama-server, ligado só enquanto há trabalho."""
+"""llama-server process, running only while there is work."""
 
 from __future__ import annotations
 
@@ -73,11 +73,11 @@ class LocalServer:
 
     def possible(self) -> str | None:
         if not self.settings.model_path:
-            return "Falta o caminho do modelo local na config."
+            return "The local model path is missing from the config."
         if not Path(self.settings.model_path).is_file():
-            return "O ficheiro do modelo local não existe."
+            return "The local model file does not exist."
         if not self._which(self.settings.binary):
-            return "O llama-server não está no PATH."
+            return "llama-server is not on PATH."
         decision = self.governor.assess(default_context=self.settings.context)
         return decision.reason
 
@@ -164,7 +164,7 @@ class LocalServer:
         while time.monotonic() < deadline:
             proc = self._proc
             if proc is not None and proc.poll() is not None:
-                raise MultiAgentXError("Não foi possível arrancar o llama-server.")
+                raise MultiAgentXError("Could not start llama-server.")
             try:
                 response = httpx.get(url, timeout=2, trust_env=False)
                 if response.status_code == 200:
@@ -173,7 +173,7 @@ class LocalServer:
                 pass
             time.sleep(0.3)
         self._stop_locked()
-        raise MultiAgentXError("O llama-server não ficou pronto a tempo.")
+        raise MultiAgentXError("llama-server did not become ready in time.")
 
     def _stop_locked(self) -> None:
         self._cancel_timer_locked()

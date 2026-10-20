@@ -1,4 +1,4 @@
-"""Descarga limitada e extração de artigo."""
+"""Limited download and article extraction."""
 
 from __future__ import annotations
 
@@ -33,19 +33,19 @@ def default_resolve(hostname: str, port: int) -> list[str]:
 def check_url(url: str, resolve=default_resolve) -> None:
     parts = urlsplit(url)
     if parts.scheme not in {"http", "https"}:
-        raise MultiAgentXError("O URL tem de ser http ou https.")
+        raise MultiAgentXError("The URL must be http or https.")
     if parts.username is not None or parts.password is not None:
-        raise MultiAgentXError("O URL não pode incluir utilizador ou senha.")
+        raise MultiAgentXError("The URL cannot include a username or password.")
     host = parts.hostname
     if not host:
-        raise MultiAgentXError("O URL está bloqueado.")
+        raise MultiAgentXError("The URL is blocked.")
     port = parts.port or (443 if parts.scheme == "https" else 80)
     try:
         addresses = _addresses(host, port, resolve)
     except OSError as exc:
-        raise MultiAgentXError("Não foi possível resolver o URL.") from exc
+        raise MultiAgentXError("Could not resolve the URL.") from exc
     if not addresses or any(_blocked(ip) for ip in addresses):
-        raise MultiAgentXError("O URL está bloqueado.")
+        raise MultiAgentXError("The URL is blocked.")
 
 
 def download(
@@ -71,21 +71,21 @@ def download(
                 if response.status_code in {301, 302, 303, 307, 308}:
                     location = response.headers.get("location")
                     if not location:
-                        raise MultiAgentXError("A página respondeu com um redirecionamento vazio.")
+                        raise MultiAgentXError("The page returned an empty redirect.")
                     redirects += 1
                     if redirects > options.max_redirects:
-                        raise MultiAgentXError("Demasiados redirecionamentos.")
+                        raise MultiAgentXError("Too many redirects.")
                     current = urljoin(current, location)
                     continue
                 if response.status_code >= 400:
                     raise MultiAgentXError(
-                        f"A página respondeu com o código {response.status_code}."
+                        f"The page returned status {response.status_code}."
                     )
                 raw, truncated = _read_limited(response, options.max_bytes)
                 content_type = response.headers.get("content-type", "")
             break
     if not _looks_like_text(content_type, raw):
-        raise MultiAgentXError("Só consigo extrair páginas HTML.")
+        raise MultiAgentXError("Only HTML pages can be extracted.")
     html = raw.decode("utf-8", errors="replace")
     return Page(url=current, text=extract_article(html), truncated=truncated)
 
@@ -118,7 +118,7 @@ def extract_with_parser(html: str) -> str:
 def excerpt(text: str, limit: int = 4000) -> str:
     if len(text) <= limit:
         return text
-    return text[:limit].rstrip() + "\n\n[texto cortado]"
+    return text[:limit].rstrip() + "\n\ntext was cut"
 
 
 class _ArticleParser(HTMLParser):

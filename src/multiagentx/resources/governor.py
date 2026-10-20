@@ -1,4 +1,4 @@
-"""RAM, threads, bateria e uma geração de cada vez."""
+"""RAM, threads, battery, and one generation at a time."""
 
 from __future__ import annotations
 
@@ -70,14 +70,14 @@ def decide_local(
         return LocalDecision(
             0,
             0,
-            "Não foi possível ler a memória livre. O modelo local não arranca.",
+            "Could not read free memory. The local model will not start.",
         )
     available = parse_meminfo(meminfo)
     if available is None or not memory_allows(available, min_mem_mb):
         return LocalDecision(
             0,
             0,
-            f"Memória livre abaixo de {min_mem_mb} MB. O modelo local não arranca.",
+            f"Free memory is below {min_mem_mb} MB. The local model will not start.",
         )
     low_battery = bool(
         battery and battery.percent < low_battery_percent and not battery.charging
