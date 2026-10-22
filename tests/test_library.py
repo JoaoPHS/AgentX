@@ -33,6 +33,24 @@ def test_clear_phrases_pick_one_script(tmp_path):
     assert choose_script("show disk free", scripts).id == "disk_free"
 
 
+def test_the_repository_stores_the_fifty_scripts():
+    import json
+    from pathlib import Path
+
+    folder = Path(__file__).resolve().parents[1] / "scripts"
+    files = sorted(path.stem for path in folder.glob("*.py"))
+    assert len(files) == INCLUDED_TOTAL
+    index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+    listed = [item["name"] for item in index["scripts"]]
+    assert listed == files
+    for name in files:
+        assert item_url(name) in json.dumps(index)
+
+
+def item_url(name: str) -> str:
+    return f"https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/{name}.py"
+
+
 def test_a_matching_checksum_accepts_the_pinned_name():
     digest = "a" * 64
     assert checksum_matches(f"{digest}  droidmcp-sensors\n", "droidmcp-sensors", digest)

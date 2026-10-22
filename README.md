@@ -236,7 +236,7 @@ list scripts
 
 A condition such as `but`, `if`, `don't`, or `não` does not create or run a script.
 
-`script examples` copies the 50 included scripts: toast, notification, battery, and smaller checks and text helpers. A clear phrase runs one of them without a model call.
+`script examples` copies the 50 included scripts: toast, notification, battery, and smaller checks and text helpers. Those same files are stored in the `scripts` folder of this repository. A clear phrase runs one of them without a model call.
 
 `script install NAME` reads a community index and can save that one Python file. The default index is the script list in this repository. A public gist URL, or `gist:ID`, offers the Python file from that gist. If the gist has several Python files, add the file name. Before anything is written, AgentX prints the source URL, the SHA-256, and a reminder that installing does not mean the script is safe. Confirm with `y` at a terminal, or pass `--yes`. Without one of those, the file is not saved. Install does not run the script. Downloads stay on HTTPS, reject private addresses, and accept only GitHub hosts plus the host of your index. Set `scripts.index_url` when you want a different community index.
 

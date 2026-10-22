@@ -1,19 +1,254 @@
 {
   "scripts": [
     {
-      "name": "toast",
-      "description": "Show a short toast on the phone.",
-      "url": "https://raw.githubusercontent.com/JoaoPHS/MultiAgentX/main/src/agentx/automation/examples/toast.py"
+      "name": "android_release",
+      "description": "Show the Android release when build.prop can be read.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/android_release.py"
     },
     {
-      "name": "notify",
-      "description": "Show a notification on the phone.",
-      "url": "https://raw.githubusercontent.com/JoaoPHS/MultiAgentX/main/src/agentx/automation/examples/notify.py"
+      "name": "base64_text",
+      "description": "Print the task text as Base64.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/base64_text.py"
     },
     {
       "name": "battery",
       "description": "Read the phone battery.",
-      "url": "https://raw.githubusercontent.com/JoaoPHS/MultiAgentX/main/src/agentx/automation/examples/battery.py"
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/battery.py"
+    },
+    {
+      "name": "battery_file",
+      "description": "Read the battery capacity file when the phone exposes one.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/battery_file.py"
+    },
+    {
+      "name": "camera_info",
+      "description": "Show camera information without taking a picture.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/camera_info.py"
+    },
+    {
+      "name": "char_count",
+      "description": "Count characters in the task text.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/char_count.py"
+    },
+    {
+      "name": "clipboard_get",
+      "description": "Show the current clipboard text.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/clipboard_get.py"
+    },
+    {
+      "name": "clock_now",
+      "description": "Show the local date and time.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/clock_now.py"
+    },
+    {
+      "name": "cpu_count",
+      "description": "Show how many CPUs Python can see.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/cpu_count.py"
+    },
+    {
+      "name": "disk_free",
+      "description": "Show free space on the home disk.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/disk_free.py"
+    },
+    {
+      "name": "download_count",
+      "description": "Count files in the Termux downloads folder.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/download_count.py"
+    },
+    {
+      "name": "encoding_name",
+      "description": "Show the preferred text encoding.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/encoding_name.py"
+    },
+    {
+      "name": "env_names",
+      "description": "List environment variable names without their values.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/env_names.py"
+    },
+    {
+      "name": "greeting",
+      "description": "Print a short ready message.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/greeting.py"
+    },
+    {
+      "name": "home_folder",
+      "description": "Show the home folder path.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/home_folder.py"
+    },
+    {
+      "name": "hostname_show",
+      "description": "Show the hostname.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/hostname_show.py"
+    },
+    {
+      "name": "json_check",
+      "description": "Say whether the task text is JSON.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/json_check.py"
+    },
+    {
+      "name": "kernel_name",
+      "description": "Show the kernel name from os.uname.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/kernel_name.py"
+    },
+    {
+      "name": "line_count",
+      "description": "Count lines in the task text.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/line_count.py"
+    },
+    {
+      "name": "load_average",
+      "description": "Show the one-minute load average.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/load_average.py"
+    },
+    {
+      "name": "locale_name",
+      "description": "Show the current locale.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/locale_name.py"
+    },
+    {
+      "name": "loopback_check",
+      "description": "Check whether something is listening on 127.0.0.1 port 8080.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/loopback_check.py"
+    },
+    {
+      "name": "lower_text",
+      "description": "Print the task text in lowercase.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/lower_text.py"
+    },
+    {
+      "name": "memory_free",
+      "description": "Show free memory from the phone.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/memory_free.py"
+    },
+    {
+      "name": "notify",
+      "description": "Show a notification on the phone.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/notify.py"
+    },
+    {
+      "name": "ollama_check",
+      "description": "Check whether something is listening on 127.0.0.1 port 11434.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/ollama_check.py"
+    },
+    {
+      "name": "path_count",
+      "description": "Count entries on PATH.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/path_count.py"
+    },
+    {
+      "name": "platform_name",
+      "description": "Show the Python platform name.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/platform_name.py"
+    },
+    {
+      "name": "prefix_path",
+      "description": "Show the Termux prefix when it is set.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/prefix_path.py"
+    },
+    {
+      "name": "python_version",
+      "description": "Show the Python version running the script.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/python_version.py"
+    },
+    {
+      "name": "random_pin",
+      "description": "Print a random four-digit pin.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/random_pin.py"
+    },
+    {
+      "name": "reverse_text",
+      "description": "Print the task text reversed.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/reverse_text.py"
+    },
+    {
+      "name": "script_folder",
+      "description": "Show the AgentX scripts folder.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/script_folder.py"
+    },
+    {
+      "name": "sha256_text",
+      "description": "Print the SHA-256 of the task text.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/sha256_text.py"
+    },
+    {
+      "name": "slug_text",
+      "description": "Turn the task text into a short slug.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/slug_text.py"
+    },
+    {
+      "name": "temp_celsius",
+      "description": "Show a CPU temperature when the phone exposes one.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/temp_celsius.py"
+    },
+    {
+      "name": "timezone_now",
+      "description": "Show the local timezone name.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/timezone_now.py"
+    },
+    {
+      "name": "title_text",
+      "description": "Print the task text in title case.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/title_text.py"
+    },
+    {
+      "name": "toast",
+      "description": "Show a short toast on the phone.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/toast.py"
+    },
+    {
+      "name": "unique_words",
+      "description": "Print the unique words in the task text.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/unique_words.py"
+    },
+    {
+      "name": "unix_time",
+      "description": "Show the current Unix time.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/unix_time.py"
+    },
+    {
+      "name": "upper_text",
+      "description": "Print the task text in uppercase.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/upper_text.py"
+    },
+    {
+      "name": "uptime_show",
+      "description": "Show how long the phone has been up.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/uptime_show.py"
+    },
+    {
+      "name": "uuid_new",
+      "description": "Print a new random id.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/uuid_new.py"
+    },
+    {
+      "name": "volume_levels",
+      "description": "Show the volume of each audio stream.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/volume_levels.py"
+    },
+    {
+      "name": "week_number",
+      "description": "Show the ISO week number.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/week_number.py"
+    },
+    {
+      "name": "weekday_today",
+      "description": "Show today's weekday.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/weekday_today.py"
+    },
+    {
+      "name": "wifi_info",
+      "description": "Show the current Wi-Fi connection.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/wifi_info.py"
+    },
+    {
+      "name": "word_count",
+      "description": "Count words in the task text.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/word_count.py"
+    },
+    {
+      "name": "year_progress",
+      "description": "Show how many days are left in the year.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/year_progress.py"
     }
   ]
 }
