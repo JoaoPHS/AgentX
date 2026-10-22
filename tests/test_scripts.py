@@ -113,6 +113,44 @@ def test_phrase_patterns_match_without_the_keyword(tmp_path):
     assert conflict[0].kind == "main"
 
 
+def test_plain_phrases_run_the_matching_script_and_skip_the_model():
+    from agentx.automation.catalog import included_root
+
+    scripts = load_catalog(included_root())
+    phrases = {
+        "check battery": "battery",
+        "checar a bateria": "battery",
+        "ver a bateria": "battery",
+        "ler o arquivo da bateria": "battery_file",
+        "check wifi": "wifi_info",
+        "checar o wifi": "wifi_info",
+        "ver o volume": "volume_levels",
+        "check disk": "disk_free",
+        "ver a memoria": "memory_free",
+        "que horas sao": "clock_now",
+        "versao do python": "python_version",
+        "contar as palavras": "word_count",
+        "deixar em maiusculas": "upper_text",
+        "manda um toast": "toast",
+        "me notifica": "notify",
+        "mostrar a temperatura": "temp_celsius",
+        "verificar json": "json_check",
+    }
+    for phrase, script_id in phrases.items():
+        steps, called = _plan(phrase, scripts)
+        assert called is False
+        assert steps == [Step("run_script", phrase, "", script_id)]
+    assert choose_script("hello", scripts) is None
+    assert choose_script("check", scripts) is None
+    declined, called = _plan(
+        "nao checar o wifi",
+        scripts,
+        analyze=lambda _text: "sub run_script wifi_info",
+    )
+    assert called is True
+    assert declined[0].kind == "main"
+
+
 def test_a_named_script_runs_without_analysis(tmp_path):
     _write(tmp_path, "toast.py", TOAST)
     scripts = load_catalog(tmp_path)

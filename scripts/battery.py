@@ -1,6 +1,6 @@
 """Read the phone battery.
 
-keywords: battery
+keywords: battery, bateria
 """
 
 import shutil

@@ -12,10 +12,10 @@ from agentx.agents.subagents import quick_answer, summarize_url
 from agentx.automation.catalog import (
     format_catalog,
     is_script_id,
-    load_catalog,
     rank_scripts,
     save_new_script,
     scripts_dir,
+    scripts_for_config,
 )
 from agentx.automation.runner import run_script
 from agentx.config import answer_instruction
@@ -106,7 +106,7 @@ class Orchestrator:
         scope = self.session.scope_name(self.config)
         local_ready = self.router.workers_ready()
         remote_ready = self.router.remote.block_reason() is None
-        installed = load_catalog(scripts_dir(self.config))
+        installed = scripts_for_config(self.config)
         language = self.config.language
         turn_context = folder_context_for(message, self.config, scripts=installed)
         mcp_tools = self.config.mcp.tools if self.config.mcp.enabled else ()

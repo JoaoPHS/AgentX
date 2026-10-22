@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 import threading
 from dataclasses import dataclass
@@ -235,8 +236,23 @@ def enable_ansi() -> None:
         return
 
 
+def _frame_width() -> int:
+    try:
+        columns = shutil.get_terminal_size(fallback=(46, 24)).columns
+    except OSError:
+        columns = 46
+    return max(32, min(46, columns))
+
+
+def _stdout_tty() -> bool:
+    try:
+        return bool(sys.stdout.isatty())
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
 def menu_lines(title: str, hint: str, choices: list[Choice], index: int) -> list[str]:
-    width = 46
+    width = _frame_width()
     inner = width - 2
     lines = [
         "┌" + "─" * inner + "┐",
@@ -247,10 +263,10 @@ def menu_lines(title: str, hint: str, choices: list[Choice], index: int) -> list
     ]
     for position, choice in enumerate(choices):
         marker = "❯" if position == index else " "
-        lines.append(f"  {marker} {choice.label}")
+        lines.append(f"  {marker} {position + 1}. {choice.label}")
     from agentx.i18n import t
 
-    lines.extend(["", t("↑↓ move    enter select    q back")])
+    lines.extend(["", t("↑↓ or number    enter select    q back")])
     return lines
 
 
@@ -290,7 +306,7 @@ def guide_lines(index: int) -> list[str]:
 
     pages = active_guides()
     title, body = pages[index]
-    width = 46
+    width = _frame_width()
     inner = width - 2
     lines = [
         "┌" + "─" * inner + "┐",
@@ -390,16 +406,36 @@ def choose(
         return None
     output = write or (lambda text: print(text, end="", flush=True))
     index = 0
-    output("\033[2J\033[H")
     while True:
+        if _stdout_tty():
+            output("\033[2J\033[H")
         output(render_menu(title, hint, choices, index, color=color))
-        step = press_menu(index, len(choices), read_key_fn())
+        try:
+            key = read_key_fn()
+        except (EOFError, KeyboardInterrupt, OSError):
+            key = _read_key_line(len(choices))
+        step = press_menu(index, len(choices), key)
         if step.closed:
             return None
         if step.selected is not None:
             return choices[step.selected].id
         index = step.index
-        output(f"\033[{len(menu_lines(title, hint, choices, index))}A")
+
+
+def _read_key_line(count: int) -> str:
+    from agentx.i18n import t
+
+    try:
+        answer = input(t("Number, enter, or q: ")).strip().casefold()
+    except EOFError:
+        return "q"
+    if answer in {"", "enter"}:
+        return "enter"
+    if answer in {"q", "quit", "sair", "esc"}:
+        return "q"
+    if answer.isdigit():
+        return answer
+    return ""
 
 
 def show_guide(*, read_key_fn=read_key, write=None, color: bool = True) -> None:
@@ -450,10 +486,16 @@ def _read_key_windows() -> str:
     if char in {"\x00", "\xe0"}:
         arrows = {"H": "up", "P": "down", "K": "left", "M": "right"}
         return arrows.get(msvcrt.getwch(), "")
-    if char == "\r":
-        return "enter"
     if char == "\x1b":
-        return "esc"
+        following = ""
+        for _ in range(2):
+            if not msvcrt.kbhit():
+                break
+            following += msvcrt.getwch()
+        arrows = {"[A": "up", "[B": "down", "[D": "left", "[C": "right"}
+        return arrows.get(following, "esc")
+    if char in {"\r", "\n"}:
+        return "enter"
     if char == "\x08":
         return "backspace"
     if char == "\x03":
@@ -470,6 +512,8 @@ def _read_key_posix() -> str:
     try:
         tty.setraw(fd)
         char = sys.stdin.read(1)
+        if not char:
+            return "q"
         if char == "\x1b":
             following = sys.stdin.read(2)
             arrows = {"[A": "up", "[B": "down", "[D": "left", "[C": "right"}

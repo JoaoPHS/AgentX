@@ -37,18 +37,25 @@ def test_the_repository_stores_the_fifty_scripts():
     import json
     from pathlib import Path
 
+    from agentx.automation.catalog import included_root
+    from agentx.automation.runner import run_script
+
     folder = Path(__file__).resolve().parents[1] / "scripts"
     files = sorted(path.stem for path in folder.glob("*.py"))
     assert len(files) == INCLUDED_TOTAL
     index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
     listed = [item["name"] for item in index["scripts"]]
     assert listed == files
+    packaged = included_root()
     for name in files:
-        assert item_url(name) in json.dumps(index)
-
-
-def item_url(name: str) -> str:
-    return f"https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/{name}.py"
+        assert (folder / f"{name}.py").read_text(encoding="utf-8") == (
+            packaged / f"{name}.py"
+        ).read_text(encoding="utf-8")
+    catalog = load_catalog(packaged)
+    assert len(catalog) == INCLUDED_TOTAL
+    assert run_script("greeting", "", catalog, timeout=5, max_output=200) == "AgentX is ready."
+    assert run_script("upper_text", "hola", catalog, timeout=5, max_output=200) == "HOLA"
+    assert run_script("word_count", "one two", catalog, timeout=5, max_output=200) == "Words: 2."
 
 
 def test_a_matching_checksum_accepts_the_pinned_name():

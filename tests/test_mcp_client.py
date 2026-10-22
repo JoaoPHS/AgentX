@@ -503,11 +503,11 @@ def test_a_sensor_call_stays_up_until_the_chat_moves_on(tmp_path):
     router = Router(config, Session(), gov, local, Remote())
     link = McpSession(config.mcp, gov, opener=lambda _settings: fake)
     orchestrator = Orchestrator(config, Session(), router)
-    first = orchestrator.handle("check battery level now please", device=link)
+    first = orchestrator.handle("check device status now please", device=link)
     assert first == "battery 80"
     assert fake.closed is False
     assert link.opens == 1
-    second = orchestrator.handle("check battery level again please", device=link)
+    second = orchestrator.handle("check device status again please", device=link)
     assert second == "battery 81"
     assert fake.closed is False
     assert link.opens == 1

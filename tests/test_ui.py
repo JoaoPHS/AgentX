@@ -19,8 +19,8 @@ from agentx.ui import (
 def test_menu_points_at_the_selected_row():
     choices = [Choice("chat", "Chat"), Choice("scripts", "Scripts")]
     lines = menu_lines("AgentX", "Pick where to go", choices, 1)
-    assert "  ❯ Scripts" in lines
-    assert "  ❯ Chat" not in lines
+    assert "  ❯ 2. Scripts" in lines
+    assert "  ❯ 1. Chat" not in lines
     painted = render_menu("AgentX", "Pick where to go", choices, 0, color=True)
     assert "\033[96m" in painted
     assert "Chat" in painted

@@ -7,16 +7,102 @@ import os
 import re
 import unicodedata
 from dataclasses import dataclass
-from importlib.resources import files
 from pathlib import Path
 
-from agentx.automation.library import library_sources
 from agentx.errors import AgentXError
 
 _ID = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _KEYWORDS = re.compile(r"^keywords:\s*(.*)$", re.IGNORECASE)
 _PATTERNS = re.compile(r"^patterns:\s*(.*)$", re.IGNORECASE)
 _REGEX_MARK = re.compile(r"[()\[\]|+*?\\]")
+_FILLER = frozenset(
+    {
+        "a",
+        "an",
+        "as",
+        "atual",
+        "average",
+        "check",
+        "checar",
+        "cheque",
+        "codificar",
+        "com",
+        "contar",
+        "count",
+        "current",
+        "da",
+        "das",
+        "de",
+        "deixar",
+        "do",
+        "dos",
+        "em",
+        "favor",
+        "file",
+        "folder",
+        "free",
+        "gerar",
+        "get",
+        "info",
+        "informacao",
+        "level",
+        "levels",
+        "livre",
+        "me",
+        "meu",
+        "minha",
+        "mostrar",
+        "mostra",
+        "mostre",
+        "my",
+        "na",
+        "name",
+        "names",
+        "new",
+        "nivel",
+        "no",
+        "nos",
+        "now",
+        "number",
+        "numero",
+        "o",
+        "os",
+        "para",
+        "please",
+        "por",
+        "phone",
+        "que",
+        "random",
+        "read",
+        "ler",
+        "show",
+        "status",
+        "task",
+        "tempo",
+        "text",
+        "texto",
+        "the",
+        "time",
+        "today",
+        "um",
+        "uma",
+        "ver",
+        "verificar",
+        "verifica",
+        "veja",
+        "your",
+    }
+)
+# Words a person says that are not already in the script id or its phrase list.
+_EXTRA = {
+    "clock_now": ("hora", "horas", "horario", "what time", "que horas"),
+    "cpu_count": ("processador", "nucleo", "nucleos"),
+    "disk_free": ("armazenamento", "espaco"),
+    "locale_name": ("idioma",),
+    "memory_free": ("ram",),
+    "volume_levels": ("som",),
+    "wifi_info": ("conexao",),
+}
 
 
 @dataclass(frozen=True)
@@ -30,6 +116,19 @@ class ScriptInfo:
 
 def is_script_id(value: str) -> bool:
     return _ID.fullmatch(value) is not None
+
+
+def included_root() -> Path:
+    """The 50 scripts shipped with AgentX. The repository scripts folder is the same set."""
+    return Path(__file__).resolve().parent / "included"
+
+
+def scripts_for_config(config) -> list[ScriptInfo]:
+    """User copies win. The shipped scripts stay available when no copy exists."""
+    merged = {script.id: script for script in load_catalog(included_root())}
+    for script in load_catalog(scripts_dir(config)):
+        merged[script.id] = script
+    return [merged[key] for key in sorted(merged)]
 
 
 def scripts_dir(config) -> Path:
@@ -65,6 +164,7 @@ def load_catalog(directory: Path) -> list[ScriptInfo]:
 
 
 def rank_scripts(message: str, scripts: list[ScriptInfo]) -> list[tuple[int, ScriptInfo]]:
+    """Score each script from its words. A request verb such as check or checar adds nothing."""
     folded = _fold(message)
     ranked: list[tuple[int, str, ScriptInfo]] = []
     for script in scripts:
@@ -74,10 +174,11 @@ def rank_scripts(message: str, scripts: list[ScriptInfo]) -> list[tuple[int, Scr
                 if keyword in folded:
                     score += 2
             elif re.search(rf"\b{re.escape(keyword)}\b", folded):
-                score += 1
+                score += 3
         for pattern in script.patterns:
             if _pattern_matches(pattern, folded):
-                score += 4
+                score += 6
+        score += _subject_hits(script, folded)
         if score:
             ranked.append((score, script.id, script))
     ranked.sort(key=lambda item: (-item[0], item[1]))
@@ -134,21 +235,15 @@ def add_script(directory: Path, source: Path) -> Path:
 
 def install_examples(directory: Path) -> list[str]:
     installed: list[str] = []
-    root = files("agentx.automation.examples")
-    for item in sorted(root.iterdir(), key=lambda entry: entry.name):
-        if not item.name.endswith(".py") or item.name == "__init__.py":
+    root = included_root()
+    for item in sorted(root.glob("*.py"), key=lambda entry: entry.name):
+        if item.name == "__init__.py":
             continue
-        script_id = Path(item.name).stem
+        script_id = item.stem
         destination = directory / f"{script_id}.py"
         if destination.exists():
             continue
         install_text(directory, item.name, item.read_text(encoding="utf-8"))
-        installed.append(script_id)
-    for script_id, text in library_sources():
-        destination = directory / f"{script_id}.py"
-        if destination.exists():
-            continue
-        install_text(directory, f"{script_id}.py", text)
         installed.append(script_id)
     return installed
 
@@ -231,6 +326,38 @@ def _match_line(document: str) -> bool:
         _KEYWORDS.match(line.strip()) or _PATTERNS.match(line.strip())
         for line in document.splitlines()
     )
+
+
+def _subject_hits(script: ScriptInfo, folded: str) -> int:
+    hits = 0
+    for word in _subject_words(script):
+        if re.search(rf"\b{re.escape(word)}\b", folded):
+            hits += 1
+    for phrase in _EXTRA.get(script.id, ()):
+        text = _fold(phrase)
+        if " " in text and text in folded:
+            hits += 2
+    return hits
+
+
+def _subject_words(script: ScriptInfo) -> set[str]:
+    found: set[str] = set()
+    tokens = [script.id, *script.keywords, *_EXTRA.get(script.id, ())]
+    for token in tokens:
+        for part in re.split(r"[^a-z0-9]+", _fold(token)):
+            if _kept(part):
+                found.add(part)
+    for pattern in script.patterns:
+        if _REGEX_MARK.search(pattern):
+            continue
+        for part in pattern.split():
+            if _kept(part):
+                found.add(part)
+    return found
+
+
+def _kept(word: str) -> bool:
+    return len(word) >= 3 and word not in _FILLER
 
 
 def _pattern_matches(pattern: str, folded: str) -> bool:

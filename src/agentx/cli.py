@@ -27,9 +27,9 @@ from agentx.automation.catalog import (
     add_script,
     install_examples,
     install_text,
-    load_catalog,
     save_new_script,
     scripts_dir,
+    scripts_for_config,
 )
 from agentx.automation.runner import run_script
 from agentx.automation.registry import is_gist_target, stage_gist, stage_named
@@ -206,8 +206,8 @@ def main(argv: list[str] | None = None) -> int:
     except AgentXError as exc:
         _report(exc)
         return 1
-    if not args and sys.stdin.isatty() and sys.stdout.isatty():
-        choose_local_engine(config)
+    if not args and _interactive():
+        enable_ansi()
     runtime = build_runtime(config)
     try:
         if args:
@@ -277,11 +277,16 @@ def _shell_arg(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _interactive() -> bool:
+    try:
+        return bool(sys.stdin.isatty() or sys.stdout.isatty())
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
 def repl(runtime: Runtime) -> int:
-    if sys.stdin.isatty() and sys.stdout.isatty():
-        enable_ansi()
-        return home(runtime)
-    return plain_repl(runtime)
+    enable_ansi()
+    return home(runtime)
 
 
 def plain_repl(runtime: Runtime) -> int:
@@ -302,6 +307,8 @@ def plain_repl(runtime: Runtime) -> int:
 
 
 def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
+    if runtime is not None:
+        _pick_local_engine(runtime, read_key_fn=read_key_fn, write=write)
     while True:
         if runtime is not None:
             set_language(runtime.config.language)
@@ -333,6 +340,23 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
             show_guide(read_key_fn=read_key_fn or _bound_read_key, write=write)
         elif picked == "doctor":
             _show_doctor(runtime.config, write=write, read_key_fn=read_key_fn)
+
+
+def _pick_local_engine(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    picked = choose(
+        "AgentX",
+        t("Pick the local model"),
+        [
+            Choice("llama", t("llama-server in another terminal")),
+            Choice("ollama", t("Ollama on this machine")),
+        ],
+        read_key_fn=read_key_fn or _bound_read_key,
+        write=write,
+    )
+    if picked is None:
+        return
+    choose_local_engine(runtime.config, answer="y" if picked == "llama" else "n")
+    _pause(t("The menu is next."), write=write, read_key_fn=read_key_fn)
 
 
 def chat(runtime: Runtime) -> str:
@@ -501,7 +525,7 @@ def _prompt_run_script(config: AppConfig) -> str:
     except (EOFError, KeyboardInterrupt):
         print()
         return ""
-    catalog = load_catalog(scripts_dir(config))
+        catalog = scripts_for_config(config)
     return run_script(
         name.casefold(),
         task,
@@ -903,7 +927,7 @@ def script_command(config: AppConfig, args: list[str]) -> int:
             run_script(
                 args[1].casefold(),
                 task,
-                load_catalog(directory),
+                scripts_for_config(config),
                 timeout=config.scripts.timeout_seconds,
                 max_output=config.scripts.max_output_chars,
             )
@@ -972,7 +996,7 @@ def _accept_install(yes: bool) -> bool:
 
 def _script_list(config: AppConfig) -> str:
     directory = scripts_dir(config)
-    scripts = load_catalog(directory)
+    scripts = scripts_for_config(config)
     if not scripts:
         return tr(
             "No scripts in {directory}. Create one with: agentx script new NAME.",
