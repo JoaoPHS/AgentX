@@ -190,6 +190,33 @@ def test_cautious_requests_do_not_run_a_script_or_call_remote():
     assert local[0].kind == "main"
 
 
+def test_portuguese_routines_and_unknown_script_ids():
+    summary, called = _plan("resuma https://example.com/a")
+    assert called is False
+    assert summary[0].kind == "summarize_url"
+    short, called = _plan("traduza bom dia")
+    assert called is False
+    assert short[0].kind == "quick_answer"
+
+    def analyze(_text):
+        return "sub run_script missing"
+
+    class Script:
+        id = "toast"
+
+    steps, called = build_plan(
+        "analyze the design",
+        force_main=False,
+        scope="local",
+        local_ready=True,
+        remote_ready=False,
+        analyze=analyze,
+        scripts=(Script(),),
+    )
+    assert called is True
+    assert steps[0].kind == "main"
+
+
 def test_engineer_command_skips_analysis():
     steps, called = _plan("explain the module", force=True, local_ready=True)
     assert called is False

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from agentx.config import FetchSettings, LimitSettings, answer_instruction
 from agentx.errors import AgentXError
+from agentx.i18n import t
 from agentx.llm.router import token_budget
 from agentx.tools.fetch import Page
 from agentx.tools.render import (
@@ -94,12 +95,12 @@ def summarize_url(
             return rendered
         page = rendered
     if not page.text.strip():
-        return "The page had no text to extract."
+        return t("The page had no text to extract.")
     chunks, cut = chunk_text(page.text, limits.chunk_chars, limits.max_chunks)
-    note = "\n\nThe text was cut because it was long." if cut or page.truncated else ""
+    note = t("\n\nThe text was cut because it was long.") if cut or page.truncated else ""
     reason = router.block_reason("subagent")
     if reason:
-        return f"{page.text}{note}\n\n{reason}"
+        return f"{page.text}{note}\n\n{t(reason)}"
     summaries: list[str] = []
     for chunk in chunks:
         stream = on_token if len(chunks) == 1 else None
@@ -143,14 +144,15 @@ def _render_script_page(page: Page, renderer):
     try:
         rendered = render_page(page.url, settings=settings, renderer=renderer)
     except AgentXError as exc:
-        if str(exc) == BROWSER_RENDER_FAILED:
-            return _script_notice(page.text, BROWSER_RENDER_FAILED)
+        raw = exc.args[0] if exc.args else ""
+        if raw == BROWSER_RENDER_FAILED:
+            return _script_notice(page.text, t(BROWSER_RENDER_FAILED))
         raise
     if rendered is None:
-        return _script_notice(page.text, BROWSER_EXTRA_MISSING)
+        return _script_notice(page.text, t(BROWSER_EXTRA_MISSING))
     if not rendered.text.strip() or rendered.script_shell:
         visible = rendered.text if rendered.text.strip() else page.text
-        return _script_notice(visible, BROWSER_RENDER_EMPTY)
+        return _script_notice(visible, t(BROWSER_RENDER_EMPTY))
     return rendered
 
 

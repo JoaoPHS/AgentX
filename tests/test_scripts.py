@@ -113,6 +113,42 @@ def test_phrase_patterns_match_without_the_keyword(tmp_path):
     assert conflict[0].kind == "main"
 
 
+def test_a_named_script_runs_without_analysis(tmp_path):
+    _write(tmp_path, "toast.py", TOAST)
+    scripts = load_catalog(tmp_path)
+    steps, called = _plan("run script toast", scripts)
+    assert called is False
+    assert steps[0].kind == "run_script"
+    assert steps[0].script == "toast"
+    _write(tmp_path, "notify.py", NOTIFY)
+    scripts = load_catalog(tmp_path)
+    tied, called = _plan("toast and notify", scripts)
+    assert called is False
+    assert tied[0].kind == "clarify"
+    created, called = _plan("create a script called hello that says hi", scripts)
+    assert called is False
+    assert created == [Step("save_script", "says hi", "", "hello")]
+    blocked, called = _plan("nao crie um script chamado hello", scripts, local_ready=False)
+    assert called is False
+    assert blocked[0].kind == "main"
+    listed, called = _plan("list scripts", scripts)
+    assert called is False
+    assert listed[0].kind == "list_scripts"
+    assert "toast" in listed[0].brief
+
+
+def test_save_new_script_stores_a_runnable_file(tmp_path):
+    from agentx.automation.catalog import save_new_script
+
+    path = save_new_script(tmp_path, "Hello", "Say hello")
+    assert path.name == "hello.py"
+    catalog = load_catalog(tmp_path)
+    result = run_script("hello", "hi there", catalog, timeout=5, max_output=100)
+    assert result == "hi there"
+    with pytest.raises(AgentXError, match="already exists"):
+        save_new_script(tmp_path, "hello", "again")
+
+
 def test_analysis_can_name_a_script_and_the_plan_runs_it():
     parsed = parse_delegation("sub run_script toast")
     assert parsed == [Step("run_script", "", "", "toast")]
@@ -199,3 +235,17 @@ def test_runner_only_starts_a_catalog_script(tmp_path):
         run_script("toast", "x", catalog, timeout=1, max_output=10, runner=expire)
         == "The script timed out."
     )
+
+
+def test_script_new_saves_and_script_run_executes(tmp_path, monkeypatch, capsys):
+    from agentx.cli import main
+    from agentx.config import init_config
+
+    path = tmp_path / "config.toml"
+    init_config(path)
+    monkeypatch.setenv("MULTIAGENTX_CONFIG", str(path))
+    assert main(["script", "new", "hello", "say hello"]) == 0
+    assert (path.parent / "scripts" / "hello.py").is_file()
+    assert main(["script", "run", "hello", "hi there"]) == 0
+    assert "hi there" in capsys.readouterr().out
+    assert main(["script", "new", "hello"]) == 1

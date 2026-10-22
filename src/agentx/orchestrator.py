@@ -10,21 +10,40 @@ from dataclasses import dataclass
 from agentx.agents.main_agent import run_main
 from agentx.agents.subagents import quick_answer, summarize_url
 from agentx.automation.catalog import (
-    choose_script,
     format_catalog,
     is_script_id,
     load_catalog,
+    rank_scripts,
+    save_new_script,
     scripts_dir,
 )
 from agentx.automation.runner import run_script
 from agentx.config import answer_instruction
 from agentx.context import attach_folder_context, folder_context_for
 from agentx.errors import AgentXError
+from agentx.i18n import t, tr
 from agentx.mcp.client import McpSession
 from agentx.tools.fetch import download
 
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
-_SHORT = re.compile(r"\b(define|translate|rewrite)\b")
+_SHORT = re.compile(
+    r"\b(define|translate|rewrite|defina|traduza|traduzir|resuma|reescreva)\b"
+)
+_RUN_SCRIPT = re.compile(
+    r"^(?:please\s+)?(?:run|execute|start|roda|rode|executa|executar)\s+"
+    r"(?:o\s+|a\s+|the\s+)?(?:script\s+)?([a-z][a-z0-9_]{0,40})"
+    r"(?:\s+(.*))?$"
+)
+_CREATE_SCRIPT = re.compile(
+    r"^(?:please\s+)?(?:create|save|store|write|new|crie|criar|salve|salvar|grave|grava|guarde|novo)\s+"
+    r"(?:um\s+|uma\s+|a\s+|an\s+)?(?:python\s+|py\s+)?script\s+"
+    r"(?:(?:called|named|chamado|chamada|nomeado|nomeada)\s+)?"
+    r"([a-z][a-z0-9_]{0,40})\b"
+    r"(?:\s*(?:that|que|para|to)\s+(.+))?$"
+)
+_LIST_SCRIPTS = re.compile(r"^(?:list|show|which|listar|mostrar|quais)\b.{0,40}\bscripts?\b$")
+_NOT_A_NAME = {"to", "that", "que", "para", "a", "an", "um", "uma", "the", "o", "de", "do", "da"}
+_SPLIT = re.compile(r"\b(?:and|then|e|depois)\b")
 _TASK_WORDS = (
     "search",
     "compare",
@@ -36,7 +55,7 @@ _TASK_WORDS = (
     "execute",
     "implement",
 )
-_SUMMARY_WORDS = ("summarize", "summary", "tldr")
+_SUMMARY_WORDS = ("summarize", "summary", "tldr", "resuma", "resumo")
 _DEFINITION = ("what is", "what does", "o que e", "o que significa")
 _CAUTION = re.compile(
     r"\b(?:but|if|unless|dont|nao|mas|se|caso|nunca|sem)\b|do not|somente se|don't"
@@ -49,6 +68,7 @@ ANALYSIS_SYSTEM = (
     "sub summarize_url URL when a page is source material. "
     "sub quick_answer only when the whole task is a short reply, and alone. "
     "sub run_script ID when an installed script does that part. "
+    "Use only an id from the installed list. Do not invent an id. "
     "main short instruction at the end, at most one, only for what the routines cannot do. "
     "Routines first."
 )
@@ -80,6 +100,7 @@ class Orchestrator:
         history: list[dict] | None = None,
         on_token=None,
         status=None,
+        device: McpSession | None = None,
     ) -> str:
         self._deadline = time.monotonic() + self.config.limits.request_timeout_seconds
         scope = self.session.scope_name(self.config)
@@ -120,10 +141,20 @@ class Orchestrator:
         def fetch(url: str):
             return download(url, settings=self.config.fetch)
 
-        mcp_session = McpSession(self.config.mcp, self.router.governor)
+        owned = device is None
+        mcp_session = device if device is not None else McpSession(self.config.mcp, self.router.governor)
+
+        def release_device() -> None:
+            running = mcp_session.transport is not None
+            mcp_session.close()
+            if running and status is not None:
+                status(t("DroidMCP stopped."))
+
+        if not any(step.kind == "mcp" for step in steps):
+            release_device()
 
         def run_summary(url: str, token) -> str:
-            mcp_session.close()
+            release_device()
             return summarize_url(
                 url,
                 router=self.router,
@@ -135,7 +166,7 @@ class Orchestrator:
             )
 
         def run_quick(brief: str, token) -> str:
-            mcp_session.close()
+            release_device()
             return quick_answer(
                 brief,
                 router=self.router,
@@ -147,7 +178,7 @@ class Orchestrator:
             )
 
         def run_engineer(brief: str, prior: str, token) -> str:
-            mcp_session.close()
+            release_device()
             return run_main(
                 brief,
                 router=self.router,
@@ -178,6 +209,17 @@ class Orchestrator:
                 max_output=self.config.scripts.max_output_chars,
             )
 
+        def launch_save(script_id: str, description: str) -> str:
+            try:
+                path = save_new_script(scripts_dir(self.config), script_id, description)
+            except AgentXError as exc:
+                return str(exc)
+            return tr(
+                "Saved {path}. Edit it, then run: agentx script run {name}",
+                path=path,
+                name=script_id,
+            )
+
         blocked = None if local_ready else self.router.local.possible()
         try:
             return execute_plan(
@@ -190,12 +232,14 @@ class Orchestrator:
                 quick=run_quick,
                 main=run_engineer,
                 run_script=launch_script,
+                save_script=launch_save,
                 mcp=launch_mcp,
                 on_token=on_token,
                 status=status,
             )
         finally:
-            mcp_session.close()
+            if owned:
+                mcp_session.close()
 
     def _timeout(self) -> float:
         remaining = self._deadline - time.monotonic()
@@ -225,7 +269,10 @@ def build_plan(
             return direct, False
     if can_analyze(scope, local_ready, remote_ready):
         parsed = parse_delegation(
-            analyze(message), max_delegations=max_delegations, mcp_tools=mcp_tools
+            analyze(message),
+            max_delegations=max_delegations,
+            mcp_tools=mcp_tools,
+            scripts=scripts,
         )
         if cautious and parsed:
             parsed = [step for step in parsed if step.kind not in {"run_script", "mcp"}]
@@ -246,6 +293,14 @@ def can_analyze(scope: str, local_ready: bool, remote_ready: bool) -> bool:
 
 
 def direct_plan(message: str, scripts=()) -> list[Step] | None:
+    named = _named_script(message, scripts)
+    if named is not None:
+        return [named]
+    created = _created_script(message)
+    if created is not None:
+        return [created]
+    if _LIST_SCRIPTS.search(fold(message).strip()):
+        return [Step("list_scripts", brief=_list_text(scripts))]
     summary = summary_target(message)
     if summary:
         return [Step("summarize_url", brief=summary, url=summary)]
@@ -317,7 +372,7 @@ def fallback_plan(message: str, *, max_delegations: int = 3, scripts=()) -> list
 
 
 def parse_delegation(
-    text: str, *, max_delegations: int = 3, mcp_tools=()
+    text: str, *, max_delegations: int = 3, mcp_tools=(), scripts=()
 ) -> list[Step] | None:
     lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
     if not lines or len(lines) > max_delegations:
@@ -337,6 +392,9 @@ def parse_delegation(
         if line.startswith("sub run_script "):
             script_id = line[len("sub run_script ") :].strip().split()[0].casefold()
             if not is_script_id(script_id):
+                return None
+            known = {script.id for script in scripts}
+            if known and script_id not in known:
                 return None
             steps.append(Step("run_script", script=script_id))
             continue
@@ -370,13 +428,19 @@ def execute_plan(
     quick,
     main,
     run_script=None,
+    save_script=None,
     mcp=None,
     on_token=None,
     status=None,
 ) -> str:
-    needs_model = any(step.kind not in {"run_script", "refuse", "mcp"} for step in steps)
+    needs_model = any(
+        step.kind not in {"run_script", "refuse", "mcp", "save_script", "list_scripts", "clarify"}
+        for step in steps
+    )
     if scope == "orchestrator" and not worker_ready and needs_model:
-        return blocked_reason or "The local model is not available to run the task."
+        return t(blocked_reason) if blocked_reason else t(
+            "The local model is not available to run the task."
+        )
     needs_local_routine = any(step.kind in {"summarize_url", "quick_answer"} for step in steps)
     if scope == "main" and not worker_ready:
         kept = [step for step in steps if step.kind not in {"summarize_url", "quick_answer"}]
@@ -391,28 +455,45 @@ def execute_plan(
         token = on_token if last else None
         if step.kind == "summarize_url":
             if not last and status:
-                status("Summarizing the page.")
+                status(t("Summarizing the page."))
             result = summarize(step.url, token)
             collected.append(result)
         elif step.kind == "quick_answer":
             result = quick(step.brief or message.strip(), token)
             collected.append(result)
         elif step.kind == "refuse":
-            result = step.brief or AMBIGUOUS
+            result = t(step.brief) if step.brief == AMBIGUOUS else (step.brief or t(AMBIGUOUS))
             collected.append(result)
         elif step.kind == "run_script":
             if not last and status:
-                status(f"Running {step.script}.")
+                status(t(f"Running {step.script}."))
             if run_script is None:
-                result = f"Unknown script: {step.script}."
+                result = t(f"Unknown script: {step.script}.")
             else:
                 result = run_script(step.script, step.brief or message.strip())
             collected.append(result)
-        elif step.kind == "mcp":
+        elif step.kind == "save_script":
             if not last and status:
-                status(f"Calling {step.tool}.")
+                status(t("Saving the script."))
+            if save_script is None:
+                result = t("Use agentx script new NAME to save a script.")
+            else:
+                result = save_script(step.script, step.brief)
+            collected.append(result)
+        elif step.kind == "list_scripts":
+            result = step.brief
+            collected.append(result)
+        elif step.kind == "clarify":
+            result = tr(
+                "More than one script matches: {names}. Run one with: run script NAME.",
+                names=step.brief,
+            )
+            collected.append(result)
+        elif step.kind == "mcp":
+            if status:
+                status(t(f"Calling {step.tool}."))
             if mcp is None:
-                result = "DroidMCP is not available."
+                result = t("DroidMCP is not available.")
             else:
                 result = mcp(step.tool)
             collected.append(result)
@@ -425,6 +506,9 @@ def execute_plan(
 def _analysis_prompt(scripts, language: str, mcp_tools) -> str:
     catalog = format_catalog(scripts)
     prompt = f"{ANALYSIS_SYSTEM}\n{answer_instruction(language)}\n{catalog}"
+    if scripts:
+        ids = ", ".join(script.id for script in scripts)
+        prompt += f"\nAll script ids: {ids}"
     if mcp_tools:
         names = ", ".join(mcp_tools)
         prompt += (
@@ -456,14 +540,47 @@ def _clean_url(url: str) -> str:
     return url.rstrip(".,);]>'\"")
 
 
+def _named_script(message: str, scripts) -> Step | None:
+    match = _RUN_SCRIPT.fullmatch(fold(message).strip())
+    if match is None:
+        return None
+    script_id = match.group(1)
+    if not any(script.id == script_id for script in scripts):
+        return None
+    rest = (match.group(2) or "").strip()
+    if rest and (_SPLIT.search(rest) or _CAUTION.search(rest)):
+        return None
+    task = rest or message.strip()
+    return Step("run_script", brief=task, script=script_id)
+
+
+def _created_script(message: str) -> Step | None:
+    match = _CREATE_SCRIPT.fullmatch(fold(message).strip())
+    if match is None or not is_script_id(match.group(1)) or match.group(1) in _NOT_A_NAME:
+        return None
+    description = (match.group(2) or "").strip()
+    return Step("save_script", brief=description, script=match.group(1))
+
+
+def _list_text(scripts) -> str:
+    if not scripts:
+        return t("No scripts are saved yet. Create one with: agentx script new NAME.")
+    lines = [t("Saved scripts:")]
+    lines.extend(f"{script.id}: {script.description}" for script in scripts)
+    return "\n".join(lines)
+
+
 def _script_step(message: str, scripts) -> Step | None:
     folded = fold(message)
     if any(re.search(rf"\b{word}\b", folded) for word in _PLANNING):
         return None
-    chosen = choose_script(message, list(scripts))
-    if chosen is None:
+    ranked = rank_scripts(message, list(scripts))
+    if not ranked:
         return None
-    return Step("run_script", brief=message.strip(), script=chosen.id)
+    if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+        names = ", ".join(script.id for score, script in ranked if score == ranked[0][0])
+        return Step("clarify", brief=names)
+    return Step("run_script", brief=message.strip(), script=ranked[0][1].id)
 
 
 def _has_task(folded: str) -> bool:

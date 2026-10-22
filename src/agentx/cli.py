@@ -19,32 +19,46 @@ from agentx.config import (
 )
 from agentx.doctor import doctor_command
 from agentx.errors import AgentXError
+from agentx.i18n import current_language, set_language, t, tr
 from agentx.llm.local import LocalServer
 from agentx.llm.remote import RemoteClient
-from agentx.llm.router import Router, Session
+from agentx.mcp.client import McpSession
 from agentx.automation.catalog import (
     add_script,
     install_examples,
     install_text,
     load_catalog,
+    save_new_script,
     scripts_dir,
 )
+from agentx.automation.runner import run_script
 from agentx.automation.registry import is_gist_target, stage_gist, stage_named
 from agentx.orchestrator import Orchestrator
 from agentx.resources.governor import Governor
+from agentx.ui import (
+    Choice,
+    Thinking,
+    choose,
+    enable_ansi,
+    format_guides,
+    show_guide,
+)
 
 HELP = """\
 Usage:
-  agentx                 open the chat
+  agentx                 open the home menu
   agentx "task"          run one task and exit
+  agentx help            print the help guide
   agentx init            write a config file with no secrets
   agentx doctor          check the config file
   agentx mcp tools       list tools from an optional DroidMCP binary
   agentx key PROVIDER KEY save a provider key in the config
-  agentx script list     list installed automation scripts
+  agentx script list     list saved scripts
+  agentx script new NAME [description] save a starter Python script
+  agentx script run NAME [task] run one saved script
   agentx script add FILE copy a Python script into the script directory
   agentx script install NAME [--yes] install a community script, or a public gist URL
-  agentx script examples install the mobile examples
+  agentx script examples install the 50 included scripts
 
 In the chat:
   /model                      show the current key scope
@@ -61,8 +75,49 @@ In the chat:
   /key PROVIDER KEY           save a provider key in the config
   /engineer <task>            send the task straight to the main agent
   /scripts                    list installed automation scripts
+  /menu                       return to the home menu
   /exit
 """
+
+HELP_PT = """\
+Uso:
+  agentx                 abre o menu inicial
+  agentx "tarefa"        executa uma tarefa e sai
+  agentx help            mostra o guia de ajuda
+  agentx init            grava um arquivo de config sem segredos
+  agentx doctor          confere o arquivo de config
+  agentx mcp tools       lista ferramentas de um binário DroidMCP opcional
+  agentx key PROVEDOR CHAVE salva a chave do provedor na config
+  agentx script list     lista os scripts salvos
+  agentx script new NOME [descricao] salva um script Python inicial
+  agentx script run NOME [tarefa] executa um script salvo
+  agentx script add ARQUIVO copia um script Python para a pasta de scripts
+  agentx script install NOME [--yes] instala um script da comunidade, ou uma URL de gist público
+  agentx script examples instala os 50 scripts inclusos
+
+No chat:
+  /model                      mostra o escopo atual da chave
+  /model local
+  /model all
+  /model orchestrator
+  /model main
+  /model PROVEDOR ID_DO_MODELO salva esse provedor remoto e o id do modelo
+  /model ollama ID_DO_MODELO  salva local.provider=ollama e esse nome do Ollama
+  /language                   mostra o idioma
+  /language en
+  /language pt
+  /language pt-BR
+  /lang                       os mesmos comandos de /language
+  /key PROVEDOR CHAVE         salva a chave do provedor na config
+  /engineer <tarefa>          manda a tarefa direto ao agente principal
+  /scripts                    lista os scripts instalados
+  /menu                       volta ao menu inicial
+  /exit
+"""
+
+
+def help_text() -> str:
+    return HELP_PT if current_language() == "pt-BR" else HELP
 
 _REMOTE_SCOPES = {"all", "orchestrator", "main"}
 _MODEL_USAGE = (
@@ -74,18 +129,35 @@ _KEY_USAGE = "Use /key openrouter, /key anthropic, or /key openai, followed by t
 
 
 class Runtime:
-    def __init__(self, config: AppConfig, session: Session, local: LocalServer, orchestrator: Orchestrator) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        session: Session,
+        local: LocalServer,
+        orchestrator: Orchestrator,
+        device: McpSession,
+    ) -> None:
         self.config = config
         self.session = session
         self.local = local
         self.orchestrator = orchestrator
+        self.device = device
+
+    def close_device(self) -> bool:
+        running = self.device.transport is not None
+        self.device.close()
+        return running
 
 
 def main(argv: list[str] | None = None) -> int:
     _utf8_stdio()
     args = list(sys.argv[1:] if argv is None else argv)
+    _saved_language()
     if args in (["-h"], ["--help"]):
-        print(HELP)
+        print(help_text())
+        return 0
+    if args == ["help"]:
+        print(format_guides(), end="")
         return 0
     if args == ["init"]:
         try:
@@ -96,13 +168,16 @@ def main(argv: list[str] | None = None) -> int:
             _report(exc)
             return 1
         if existed:
-            print(f"Config already exists at {path}.")
+            _saved_language()
+            print(tr("Config already exists at {path}.", path=path))
         else:
-            print(f"Config written to {path}")
-        return 0
+            print(tr("Config written to {path}", path=path))
+        from agentx.setup_local import prepare_local_model
+
+        return prepare_local_model(path)
     if args and args[0] == "doctor":
         if args[1:]:
-            print("Use agentx doctor.", file=sys.stderr)
+            print(t("Use agentx doctor."), file=sys.stderr)
             return 1
         return doctor_command()
     if args and args[0] == "mcp":
@@ -131,6 +206,8 @@ def main(argv: list[str] | None = None) -> int:
     except AgentXError as exc:
         _report(exc)
         return 1
+    if not args and sys.stdin.isatty() and sys.stdout.isatty():
+        choose_local_engine(config)
     runtime = build_runtime(config)
     try:
         if args:
@@ -138,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         return repl(runtime)
     finally:
         runtime.local.stop(force=True)
+        runtime.close_device()
 
 
 def build_runtime(config: AppConfig) -> Runtime:
@@ -146,21 +224,394 @@ def build_runtime(config: AppConfig) -> Runtime:
     local = LocalServer(config.local, governor)
     remote = RemoteClient(config, session)
     router = Router(config, session, governor, local, remote)
-    return Runtime(config, session, local, Orchestrator(config, session, router))
+    device = McpSession(config.mcp, governor)
+    return Runtime(config, session, local, Orchestrator(config, session, router), device)
+
+
+def choose_local_engine(config: AppConfig, *, answer: str | None = None) -> str:
+    """Ask on an interactive agentx launch. Yes keeps llama-server. No saves Ollama."""
+    if answer is None:
+        try:
+            answer = input(t("Use llama-server? No saves Ollama in the config. [y/N] "))
+        except EOFError:
+            print()
+            return config.local.provider
+    if answer.strip().casefold() in {"y", "yes", "s", "sim"}:
+        failed = _save_sections(config, {"local": {"provider": "llama"}})
+        if failed:
+            print(failed, file=sys.stderr)
+            return config.local.provider
+        model = config.local.model_path.strip() or "MODEL.gguf"
+        print(t("Open another terminal and start llama-server there. Leave that terminal open."))
+        print()
+        print(f"  llama-server -m {_shell_arg(model)} --host 127.0.0.1 --port {config.local.port}")
+        print()
+        print(t("Keep using AgentX in this terminal."))
+        return "llama"
+    model = config.local.model.strip() or "qwen2.5:1.5b"
+    failed = _save_sections(
+        config,
+        {"local": {"provider": "ollama", "model": model, "base_url": "http://127.0.0.1:11434"}},
+    )
+    if failed:
+        print(failed, file=sys.stderr)
+        return config.local.provider
+    print(t("Ollama is the local engine now."))
+    print(tr("Config saved: local.provider = {provider}.", provider="ollama"))
+    print(t("Open another terminal and start Ollama there. Leave that terminal open."))
+    print()
+    print("  ollama serve")
+    print()
+    print(
+        tr(
+            "The model name is {model}. Pull it in that terminal if Ollama does not have it yet.",
+            model=model,
+        )
+    )
+    return "ollama"
+
+
+def _shell_arg(value: str) -> str:
+    if value and not any(char in value for char in ' \t"\'$'):
+        return value
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def repl(runtime: Runtime) -> int:
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        enable_ansi()
+        return home(runtime)
+    return plain_repl(runtime)
+
+
+def plain_repl(runtime: Runtime) -> int:
+    try:
+        while True:
+            try:
+                line = input("> ")
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if not line.strip():
+                continue
+            if run_line(runtime, line) == "exit":
+                return 0
+        return 0
+    finally:
+        _stop_device(runtime)
+
+
+def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
     while True:
-        try:
-            line = input("> ")
-        except (EOFError, KeyboardInterrupt):
-            print()
+        if runtime is not None:
+            set_language(runtime.config.language)
+        choices = [
+            Choice("chat", t("Chat")),
+            Choice("scripts", t("Scripts")),
+            Choice("config", t("Configuration")),
+            Choice("help", t("Help guide")),
+            Choice("doctor", t("Check config")),
+            Choice("exit", t("Exit")),
+        ]
+        picked = choose(
+            "AgentX",
+            t("Pick where to go"),
+            choices,
+            read_key_fn=read_key_fn or _bound_read_key,
+            write=write,
+        )
+        if picked in {None, "exit"}:
             return 0
-        if not line.strip():
-            continue
-        if run_line(runtime, line) == "exit":
-            return 0
-    return 0
+        if picked == "chat":
+            if chat(runtime) == "exit":
+                return 0
+        elif picked == "scripts":
+            scripts_menu(runtime, read_key_fn=read_key_fn, write=write)
+        elif picked == "config":
+            config_menu(runtime, read_key_fn=read_key_fn, write=write)
+        elif picked == "help":
+            show_guide(read_key_fn=read_key_fn or _bound_read_key, write=write)
+        elif picked == "doctor":
+            _show_doctor(runtime.config, write=write, read_key_fn=read_key_fn)
+
+
+def chat(runtime: Runtime) -> str:
+    print(_tone_prompt(t("Chat  ·  /menu returns  ·  /exit quits")))
+    try:
+        while True:
+            try:
+                line = input(_tone_prompt("❯ "))
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return "menu"
+            if not line.strip():
+                continue
+            outcome = run_line(runtime, line)
+            if outcome in {"exit", "menu"}:
+                return outcome
+        return "menu"
+    finally:
+        _stop_device(runtime)
+
+
+def _stop_device(runtime: Runtime) -> None:
+    if runtime.close_device():
+        print(t("DroidMCP stopped."))
+
+
+def scripts_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    while True:
+        choices = [
+            Choice("list", t("List installed scripts")),
+            Choice("new", t("Create a script")),
+            Choice("run", t("Run a saved script")),
+            Choice("examples", t("Install 50 included scripts")),
+            Choice("install", t("Install a community script")),
+            Choice("back", t("Back")),
+        ]
+        picked = choose(
+            t("Scripts"),
+            t("Saved scripts"),
+            choices,
+            read_key_fn=read_key_fn or _bound_read_key,
+            write=write,
+        )
+        if picked in {None, "back"}:
+            return
+        if picked == "list":
+            _pause(_script_list(runtime.config), write=write, read_key_fn=read_key_fn)
+        elif picked == "new":
+            _pause(_prompt_new_script(runtime.config), write=write, read_key_fn=read_key_fn)
+        elif picked == "run":
+            _pause(_prompt_run_script(runtime.config), write=write, read_key_fn=read_key_fn)
+        elif picked == "examples":
+            _pause(_install_examples_message(runtime.config), write=write, read_key_fn=read_key_fn)
+        elif picked == "install":
+            _prompt_install(runtime.config)
+
+
+def config_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    while True:
+        set_language(runtime.config.language)
+        choices = [
+            Choice("show", t("Show current settings")),
+            Choice("scope", t("Model scope")),
+            Choice("language", t("Language")),
+            Choice("key", t("Save a provider key")),
+            Choice("mcp", "DroidMCP"),
+            Choice("back", t("Back")),
+        ]
+        picked = choose(
+            t("Configuration"),
+            t("Saved settings"),
+            choices,
+            read_key_fn=read_key_fn or _bound_read_key,
+            write=write,
+        )
+        if picked in {None, "back"}:
+            return
+        if picked == "show":
+            _pause(session_card(runtime.config), write=write, read_key_fn=read_key_fn)
+        elif picked == "scope":
+            _pick_scope(runtime, read_key_fn=read_key_fn, write=write)
+        elif picked == "language":
+            _pick_language(runtime, read_key_fn=read_key_fn, write=write)
+        elif picked == "key":
+            _prompt_key(runtime.config)
+        elif picked == "mcp":
+            _pause(_mcp_card(runtime.config), write=write, read_key_fn=read_key_fn)
+
+
+def _pick_scope(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    choices = [
+        Choice("local", t("Local")),
+        Choice("all", t("All roles on the remote key")),
+        Choice("orchestrator", t("Analysis on the remote key")),
+        Choice("main", t("Main agent on the remote key")),
+        Choice("back", t("Back")),
+    ]
+    picked = choose(
+        t("Model scope"),
+        t("Where the key is used"),
+        choices,
+        read_key_fn=read_key_fn or _bound_read_key,
+        write=write,
+    )
+    if picked in {None, "back"}:
+        return
+    _pause(
+        apply_model_command(picked, runtime.session, runtime.config),
+        write=write,
+        read_key_fn=read_key_fn,
+    )
+
+
+def _pick_language(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    choices = [
+        Choice("en", t("English")),
+        Choice("pt-BR", t("Brazilian Portuguese")),
+        Choice("back", t("Back")),
+    ]
+    picked = choose(
+        t("Language"),
+        t("Interface language"),
+        choices,
+        read_key_fn=read_key_fn or _bound_read_key,
+        write=write,
+    )
+    if picked in {None, "back"}:
+        return
+    _pause(apply_language_command(picked, runtime.config), write=write, read_key_fn=read_key_fn)
+
+
+def _prompt_key(config: AppConfig) -> None:
+    import getpass
+
+    provider = input(t("Provider (openrouter, anthropic, openai): ")).strip()
+    try:
+        key = getpass.getpass(t("Key: "))
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    print(apply_key_command(f"{provider} {key}".strip(), config))
+
+
+def _prompt_new_script(config: AppConfig) -> str:
+    try:
+        name = input(t("Script name: ")).strip()
+        if not name:
+            return ""
+        description = input(t("What the script does: ")).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+    try:
+        path = save_new_script(scripts_dir(config), name, description)
+    except AgentXError as exc:
+        return str(exc)
+    return tr("Saved {path}. Edit it, then run: agentx script run {name}", path=path, name=path.stem)
+
+
+def _prompt_run_script(config: AppConfig) -> str:
+    try:
+        name = input(t("Script name: ")).strip()
+        if not name:
+            return ""
+        task = input(t("Task for the script: ")).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+    catalog = load_catalog(scripts_dir(config))
+    return run_script(
+        name.casefold(),
+        task,
+        catalog,
+        timeout=config.scripts.timeout_seconds,
+        max_output=config.scripts.max_output_chars,
+    )
+
+
+def _prompt_install(config: AppConfig) -> None:
+    try:
+        target = input(t("Script name or gist URL: ")).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if not target:
+        return
+    _install_remote(config, scripts_dir(config), target, None, yes=False)
+
+
+def _install_examples_message(config: AppConfig) -> str:
+    try:
+        installed = install_examples(scripts_dir(config))
+    except AgentXError as exc:
+        return str(exc)
+    return _examples_line(installed, scripts_dir(config), menu=True)
+
+
+def _examples_line(installed: list[str], directory: Path, *, menu: bool) -> str:
+    if not installed:
+        if menu:
+            return t("The 50 included scripts are already installed.")
+        return tr("The 50 included scripts are already in {directory}.", directory=directory)
+    if len(installed) >= 20:
+        return tr(
+            "Installed {count} scripts in {directory}.",
+            count=len(installed),
+            directory=directory,
+        )
+    if menu:
+        return tr("Installed {names}", names=", ".join(installed))
+    return tr("Installed {names} in {directory}", names=", ".join(installed), directory=directory)
+
+
+def _show_doctor(config: AppConfig, *, write=None, read_key_fn=None) -> None:
+    from agentx.doctor import run_doctor
+
+    _code, report = run_doctor(config.path)
+    _pause(report, write=write, read_key_fn=read_key_fn)
+
+
+def _pause(text: str, *, write=None, read_key_fn=None) -> None:
+    output = write or (lambda chunk: print(chunk, end="", flush=True))
+    output("\033[2J\033[H")
+    output(_tone_block(text) + "\n\n" + t("enter returns") + "\n")
+    (read_key_fn or _bound_read_key)()
+
+
+def _bound_read_key():
+    from agentx.ui import read_key
+
+    return read_key()
+
+
+def _tone_prompt(text: str) -> str:
+    if not sys.stdout.isatty():
+        return text
+    return f"\033[96m{text}\033[0m"
+
+
+def _tone_block(text: str) -> str:
+    if not sys.stdout.isatty():
+        return text
+    return f"\033[36m{text}\033[0m"
+
+
+def session_card(config: AppConfig) -> str:
+    set_language(config.language)
+    local_name = config.local.model if config.local.provider == "ollama" else config.local.model_path
+    shown = local_name or t("not set")
+    tools = ", ".join(config.mcp.tools) if config.mcp.tools else t("none")
+    state = t("on") if config.mcp.enabled else t("off")
+    return "\n".join(
+        [
+            tr("Language: {language}", language=config.language),
+            tr("Local: {provider}, {shown}", provider=config.local.provider, shown=shown),
+            tr(
+                "Remote: {provider}, scope {scope}",
+                provider=config.routing.remote_provider,
+                scope=config.routing.remote_scope,
+            ),
+            tr("MCP: {state}, tools {tools}", state=state, tools=tools),
+            tr("Scripts: {directory}", directory=scripts_dir(config)),
+        ]
+    )
+
+
+def _mcp_card(config: AppConfig) -> str:
+    set_language(config.language)
+    mark = "on" if config.mcp.enabled else "off"
+    tools = ", ".join(config.mcp.tools) if config.mcp.tools else t("none")
+    return "\n".join(
+        [
+            t(f"Client: {mark}"),
+            tr("Binary: {binary}", binary=config.mcp.binary),
+            tr("Tools: {tools}", tools=tools),
+            t("Command names stay off."),
+            t("Set mcp.enabled and mcp.tools in the config to allow a call."),
+        ]
+    )
 
 
 def run_once(runtime: Runtime, text: str) -> int:
@@ -172,19 +623,30 @@ def run_line(runtime: Runtime, line: str) -> str:
     action = interpret(line, runtime.session, runtime.config)
     if action[0] == "exit":
         return "exit"
+    if action[0] == "menu":
+        return "menu"
     if action[0] == "reply":
         print(action[1])
         return "ok"
     streamed = ""
+    thinking = Thinking(sys.stderr) if sys.stderr.isatty() else None
 
     def on_token(token: str) -> None:
         nonlocal streamed
+        if thinking is not None:
+            thinking.stop()
         streamed += token
         print(token, end="", flush=True)
 
     def status(text: str) -> None:
+        if thinking is not None:
+            thinking.stop()
         print(text, file=sys.stderr)
+        if thinking is not None and not streamed:
+            thinking.start()
 
+    if thinking is not None:
+        thinking.start()
     try:
         result = runtime.orchestrator.handle(
             action[1],
@@ -192,6 +654,7 @@ def run_line(runtime: Runtime, line: str) -> str:
             history=trim_history(runtime.session.history, runtime.config.limits.history_chars),
             on_token=on_token,
             status=status,
+            device=runtime.device,
         )
     except AgentXError as exc:
         _report(exc)
@@ -199,6 +662,9 @@ def run_line(runtime: Runtime, line: str) -> str:
     except Exception:
         _report_unexpected()
         return "error"
+    finally:
+        if thinking is not None:
+            thinking.stop()
     if not streamed:
         print(result)
     elif result.startswith(streamed):
@@ -220,6 +686,8 @@ def interpret(line: str, session: Session, config: AppConfig) -> tuple[str, str,
     text = line.strip()
     if text in {"/exit", "/quit"}:
         return ("exit", "", False)
+    if text in {"/menu", "/back"}:
+        return ("menu", "", False)
     if text == "/scripts":
         return ("reply", _script_list(config), False)
     if text == "/model":
@@ -231,11 +699,11 @@ def interpret(line: str, session: Session, config: AppConfig) -> tuple[str, str,
     if text.startswith("/language ") or text.startswith("/lang "):
         return ("reply", apply_language_command(text.split(maxsplit=1)[1].strip(), config), False)
     if text == "/key":
-        return ("reply", _KEY_USAGE, False)
+        return ("reply", t(_KEY_USAGE), False)
     if text.startswith("/key "):
         return ("reply", apply_key_command(text[len("/key ") :].strip(), config), False)
     if text == "/engineer":
-        return ("reply", "Use /engineer followed by the task.", False)
+        return ("reply", t("Use /engineer followed by the task."), False)
     if text.startswith("/engineer "):
         return ("task", text[len("/engineer ") :].strip(), True)
     return ("task", text, False)
@@ -248,7 +716,7 @@ def apply_model_command(argument: str, session: Session, config: AppConfig | Non
         session.provider = "local"
         session.scope = "local"
         failed = _save_model(config, scope="local")
-        return failed or "Session: local."
+        return failed or t("Session: local.")
     if scope in _REMOTE_SCOPES:
         session.provider = None
         session.scope = scope
@@ -256,58 +724,67 @@ def apply_model_command(argument: str, session: Session, config: AppConfig | Non
         if failed:
             return failed
         provider = config.routing.remote_provider if config is not None else "remote"
-        return f"Session: {provider}, scope {scope}."
+        return tr("Session: {provider}, scope {scope}.", provider=provider, scope=scope)
     if parts and parts[0] in PROVIDERS and len(parts) >= 2:
         chosen = normalize_scope(parts[1]) if len(parts) == 2 else None
         if len(parts) == 2 and chosen in _REMOTE_SCOPES:
             session.provider = parts[0]
             session.scope = chosen
             failed = _save_model(config, scope=chosen, provider=parts[0])
-            return failed or f"Session: {parts[0]}, scope {chosen}."
+            return failed or tr("Session: {provider}, scope {scope}.", provider=parts[0], scope=chosen)
         if (len(parts) == 2 and chosen is not None) or (
             len(parts) > 2 and normalize_scope(parts[1]) is not None
         ):
-            return _MODEL_USAGE
+            return t(_MODEL_USAGE)
         model_name = " ".join(parts[1:]).strip()
         if model_name:
             session.provider = parts[0]
             failed = _save_model(config, provider=parts[0], model=model_name)
-            return failed or f"Session: {parts[0]}, model {model_name}."
+            return failed or tr(
+                "Session: {provider}, model {model}.",
+                provider=parts[0],
+                model=model_name,
+            )
     if parts and parts[0] == "ollama" and len(parts) >= 2:
         model_name = " ".join(parts[1:]).strip()
         if model_name:
             failed = _save_ollama(config, model_name)
-            return failed or f"Local provider: ollama, model {model_name}."
-    return _MODEL_USAGE
+            return failed or tr("Local provider: ollama, model {model}.", model=model_name)
+    return t(_MODEL_USAGE)
 
 
 def describe_language(config: AppConfig) -> str:
-    return f"Language: {config.language}."
+    set_language(config.language)
+    return tr("Language: {language}.", language=config.language)
 
 
 def apply_language_command(argument: str, config: AppConfig) -> str:
     chosen = normalize_language(argument)
     if chosen is None:
-        return "Unknown language. Use en or pt-BR."
+        return t("Unknown language. Use en, pt, or pt-BR.")
     failed = _save_sections(config, {"preferences": {"language": chosen}})
-    return failed or f"Language: {chosen}."
+    if failed:
+        return failed
+    set_language(chosen)
+    config.language = chosen
+    return tr("Language: {language}.", language=chosen)
 
 
 def apply_key_command(argument: str, config: AppConfig) -> str:
     parts = argument.split(maxsplit=1)
     if len(parts) != 2 or parts[0] not in PROVIDERS or not parts[1].strip():
-        return _KEY_USAGE
+        return t(_KEY_USAGE)
     provider = parts[0]
     key = parts[1].strip()
     failed = _save_sections(config, {provider: {"api_key": key}})
     if failed:
         return failed
-    return f"Saved the {provider} key."
+    return tr("Saved the {provider} key.", provider=provider)
 
 
 def mcp_command(config: AppConfig, args: list[str]) -> int:
     if args != ["tools"]:
-        print("Use agentx mcp tools.", file=sys.stderr)
+        print(t("Use agentx mcp tools."), file=sys.stderr)
         return 1
     from agentx.mcp.client import list_tools
 
@@ -318,24 +795,22 @@ def mcp_command(config: AppConfig, args: list[str]) -> int:
         _report(exc)
         return 1
     if not tools:
-        print("DroidMCP listed no tools.")
+        print(t("DroidMCP listed no tools."))
         return 0
     allowed = set(config.mcp.tools)
     for tool in tools:
         mark = "allowed" if tool.name in allowed else "off"
-        print(f"{tool.name}: {mark}")
+        template = "{name}: allowed" if mark == "allowed" else "{name}: off"
+        print(tr(template, name=tool.name))
     return 0
 
 
 def key_command(config: AppConfig, args: list[str]) -> int:
     if len(args) < 2:
-        print(
-            "Use agentx key openrouter, agentx key anthropic, or agentx key openai, followed by the key.",
-            file=sys.stderr,
-        )
+        print(t("Use agentx key openrouter, agentx key anthropic, or agentx key openai, followed by the key."), file=sys.stderr)
         return 1
     message = apply_key_command(f"{args[0]} {' '.join(args[1:])}", config)
-    if not message.startswith("Saved "):
+    if message != tr("Saved the {provider} key.", provider=args[0]):
         print(message, file=sys.stderr)
         return 1
     print(message)
@@ -378,11 +853,12 @@ def _save_sections(config: AppConfig, sections: dict[str, dict[str, str]]) -> st
 
 
 def describe_session(session: Session, config: AppConfig) -> str:
+    set_language(config.language)
     scope = session.scope_name(config)
     if scope == "local":
-        return "Session: local."
+        return t("Session: local.")
     provider = session.provider_name(config)
-    return f"Session: {provider}, scope {scope}."
+    return tr("Session: {provider}, scope {scope}.", provider=provider, scope=scope)
 
 
 def script_command(config: AppConfig, args: list[str]) -> int:
@@ -396,10 +872,7 @@ def script_command(config: AppConfig, args: list[str]) -> int:
         except AgentXError as exc:
             _report(exc)
             return 1
-        if installed:
-            print("Installed " + ", ".join(installed) + f" in {directory}")
-        else:
-            print(f"Mobile examples are already in {directory}")
+        print(_examples_line(installed, directory, menu=False))
         return 0
     if len(args) == 2 and args[0] == "add":
         try:
@@ -407,7 +880,34 @@ def script_command(config: AppConfig, args: list[str]) -> int:
         except AgentXError as exc:
             _report(exc)
             return 1
-        print(f"Script written to {destination}")
+        print(tr("Script written to {path}", path=destination))
+        return 0
+    if args and args[0] == "new" and len(args) >= 2:
+        description = " ".join(args[2:]).strip()
+        try:
+            destination = save_new_script(directory, args[1], description)
+        except AgentXError as exc:
+            _report(exc)
+            return 1
+        print(
+            tr(
+                "Saved {path}. Edit it, then run: agentx script run {name}",
+                path=destination,
+                name=destination.stem,
+            )
+        )
+        return 0
+    if args and args[0] == "run" and len(args) >= 2:
+        task = " ".join(args[2:]).strip()
+        print(
+            run_script(
+                args[1].casefold(),
+                task,
+                load_catalog(directory),
+                timeout=config.scripts.timeout_seconds,
+                max_output=config.scripts.max_output_chars,
+            )
+        )
         return 0
     if args and args[0] == "install":
         yes = "--yes" in args
@@ -421,7 +921,7 @@ def script_command(config: AppConfig, args: list[str]) -> int:
                 yes=yes,
             )
     print(
-        "Use script list, script add FILE, script install NAME, or script examples.",
+        t("Use script list, script new NAME, script run NAME, script add FILE, script install NAME, or script examples."),
         file=sys.stderr,
     )
     return 1
@@ -445,16 +945,16 @@ def _install_remote(
     except AgentXError as exc:
         _report(exc)
         return 1
-    print(offer.report())
+    print(t(offer.report()))
     if not _accept_install(yes):
-        print("Script not installed.", file=sys.stderr)
+        print(t("Script not installed."), file=sys.stderr)
         return 1
     try:
         destination = install_text(directory, offer.filename, offer.text)
     except AgentXError as exc:
         _report(exc)
         return 1
-    print(f"Script written to {destination}")
+    print(tr("Script written to {path}", path=destination))
     return 0
 
 
@@ -464,18 +964,21 @@ def _accept_install(yes: bool) -> bool:
     if not sys.stdin.isatty():
         return False
     try:
-        answer = input("Install this script? [y/N] ")
+        answer = input(t("Install this script? [y/N] "))
     except EOFError:
         return False
-    return answer.strip().casefold() in {"y", "yes"}
+    return answer.strip().casefold() in {"y", "yes", "s", "sim"}
 
 
 def _script_list(config: AppConfig) -> str:
     directory = scripts_dir(config)
     scripts = load_catalog(directory)
     if not scripts:
-        return f"No scripts in {directory}. Add one with: agentx script add file.py"
-    lines = [f"Scripts in {directory}:"]
+        return tr(
+            "No scripts in {directory}. Create one with: agentx script new NAME.",
+            directory=directory,
+        )
+    lines = [tr("Scripts in {directory}:", directory=directory)]
     lines.extend(f"{script.id}: {script.description}" for script in scripts)
     return "\n".join(lines)
 
@@ -514,4 +1017,14 @@ def _report_unexpected() -> None:
     if os.environ.get("MULTIAGENTX_DEBUG") == "1":
         traceback.print_exc()
         return
-    print("The request failed.", file=sys.stderr)
+    print(t("The request failed."), file=sys.stderr)
+
+
+def _saved_language() -> None:
+    path = default_config_path()
+    if not path.is_file():
+        return
+    try:
+        load_config(path)
+    except AgentXError:
+        return

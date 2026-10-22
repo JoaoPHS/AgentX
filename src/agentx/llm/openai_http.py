@@ -8,6 +8,7 @@ from collections.abc import Iterable, Iterator
 import httpx
 
 from agentx.errors import AgentXError
+from agentx.i18n import t
 
 TRUNCATION_NOTE = "The reply reached the token limit."
 
@@ -58,11 +59,14 @@ def consume_sse_lines(lines: Iterable[str], inspect, on_token=None) -> str:
 
 def append_truncation_note(text: str) -> str:
     body = text.rstrip("\n")
-    if body.endswith(TRUNCATION_NOTE):
-        return text if text.endswith(TRUNCATION_NOTE) else body
+    note = t(TRUNCATION_NOTE)
+    if body.endswith(TRUNCATION_NOTE) or body.endswith(note):
+        if text.endswith(note) or text.endswith(TRUNCATION_NOTE):
+            return text
+        return body
     if body:
-        return f"{body}\n{TRUNCATION_NOTE}"
-    return TRUNCATION_NOTE
+        return f"{body}\n{note}"
+    return note
 
 
 def inspect_openai_line(line: str) -> tuple[str | None, bool]:

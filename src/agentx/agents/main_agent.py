@@ -9,6 +9,7 @@ from agentx.agents.subagents import summarize_url
 from agentx.config import answer_instruction
 from agentx.context import attach_folder_context
 from agentx.errors import AgentXError
+from agentx.i18n import t
 from agentx.llm.router import token_budget
 from agentx.tools.fetch import excerpt
 
@@ -140,7 +141,7 @@ def _run_tool(
             return excerpt(fetch(payload["url"]).text)
         if name == "run_script":
             if run_script is None:
-                return f"Unknown script: {payload['id']}."
+                return t(f"Unknown script: {payload['id']}.")
             return run_script(str(payload["id"]).casefold(), brief)
         return summarize_url(
             payload["url"],

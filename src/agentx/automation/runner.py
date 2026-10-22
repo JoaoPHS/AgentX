@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 from agentx.automation.catalog import ScriptInfo
+from agentx.i18n import current_language, t
 
 
 def run_script(
@@ -20,7 +22,7 @@ def run_script(
 ) -> str:
     chosen = next((script for script in scripts if script.id == script_id), None)
     if chosen is None:
-        return f"Unknown script: {script_id}."
+        return t(f"Unknown script: {script_id}.")
     command = [sys.executable, str(chosen.path), task]
     launch = runner or _default_runner
     try:
@@ -30,15 +32,15 @@ def run_script(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        return "The script timed out."
+        return t("The script timed out.")
     except OSError:
-        return "The script could not be started."
+        return t("The script could not be started.")
     stdout = _clip(getattr(completed, "stdout", "") or "", max_output)
     stderr = _clip(getattr(completed, "stderr", "") or "", max_output)
     if getattr(completed, "returncode", 1) != 0:
-        detail = stderr or stdout or "The script failed."
+        detail = stderr or stdout or t("The script failed.")
         return detail
-    return stdout or "The script finished with no output."
+    return stdout or t("The script finished with no output.")
 
 
 def _default_runner(command: list[str], *, cwd: str, timeout: float):
@@ -50,7 +52,14 @@ def _default_runner(command: list[str], *, cwd: str, timeout: float):
         text=True,
         shell=False,
         check=False,
+        env=_script_env(),
     )
+
+
+def _script_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["AGENTX_LANG"] = current_language()
+    return env
 
 
 def _clip(text: str, limit: int) -> str:

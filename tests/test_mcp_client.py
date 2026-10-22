@@ -471,3 +471,50 @@ def test_handle_reuses_one_session_and_keeps_the_text_on_device(tmp_path, monkey
     assert opened[0].closed is True
     assert remote.calls == []
     assert any("battery 80" in json.dumps(call) for call in local.calls)
+
+
+def test_a_sensor_call_stays_up_until_the_chat_moves_on(tmp_path):
+    fake = Fake([_init(), _listed("device_status"), _called("battery 80"), _called("battery 81")])
+    config = AppConfig()
+    config.scripts.dir = str(tmp_path)
+    config.routing.remote_scope = "local"
+    config.mcp.enabled = True
+    config.mcp.tools = ("device_status",)
+    gov = Gov()
+
+    class Sensors:
+        def __init__(self):
+            self.calls = []
+
+        def possible(self):
+            return None
+
+        def ensure_running(self):
+            return None
+
+        def complete(self, messages, **_kwargs):
+            self.calls.append(messages)
+            system = messages[0]["content"] if messages else ""
+            if "Do not answer the user" in system:
+                return "sub mcp device_status"
+            return "local"
+
+    local = Sensors()
+    router = Router(config, Session(), gov, local, Remote())
+    link = McpSession(config.mcp, gov, opener=lambda _settings: fake)
+    orchestrator = Orchestrator(config, Session(), router)
+    first = orchestrator.handle("check battery level now please", device=link)
+    assert first == "battery 80"
+    assert fake.closed is False
+    assert link.opens == 1
+    second = orchestrator.handle("check battery level again please", device=link)
+    assert second == "battery 81"
+    assert fake.closed is False
+    assert link.opens == 1
+    notes = []
+    third = orchestrator.handle("what is a file", device=link, status=notes.append)
+    assert third == "local"
+    assert fake.closed is True
+    assert notes == ["DroidMCP stopped."]
+    link.close()
+    assert notes == ["DroidMCP stopped."]

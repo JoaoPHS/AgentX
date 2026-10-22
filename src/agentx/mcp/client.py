@@ -153,7 +153,7 @@ def _warm_screenshot(settings, governor, name: str) -> None:
     temperature = read_cpu_temperature(thermal)
     warm = getattr(governor.settings, "warm_celsius", 70)
     if temperature is not None and temperature >= warm:
-        raise AgentXError("The phone is warm. The screenshot was not taken.")
+        raise AgentXError("The device is warm. The screenshot was not taken.")
 
 
 def _arguments(name: str, root: str) -> dict:

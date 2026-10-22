@@ -150,6 +150,29 @@ def test_ollama_respects_governor_and_does_not_spawn(monkeypatch):
         server.ensure_running()
 
 
+def test_running_llama_server_is_reused(tmp_path, monkeypatch):
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"gguf")
+
+    def fake_get(url, timeout=None, trust_env=None):
+        assert str(url).endswith(":8080/health")
+        assert trust_env is False
+
+        class Response:
+            status_code = 200
+
+        return Response()
+
+    monkeypatch.setattr("agentx.llm.local.httpx.get", fake_get)
+    server = LocalServer(
+        LocalSettings(provider="llama", model_path=str(model), port=8080),
+        StubGovernor(),
+        popen=_boom_popen,
+        which=lambda _name: "llama-server",
+    )
+    server.ensure_running()
+
+
 def test_llama_still_requires_the_file(tmp_path, monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("llama must not probe Ollama")

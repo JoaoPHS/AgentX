@@ -151,7 +151,7 @@ def test_lang_alias_saves_without_a_local_model(tmp_path):
     init_config(path)
     config = load_config(path)
     assert config.local.model_path == ""
-    assert interpret("/lang pt-BR", Session(), config) == ("reply", "Language: pt-BR.", False)
+    assert interpret("/lang pt-BR", Session(), config) == ("reply", "Idioma: pt-BR.", False)
     assert load_config(path).language == "pt-BR"
 
 
@@ -163,15 +163,15 @@ def test_language_is_saved_and_unknown_values_do_not_write(tmp_path):
     assert interpret("/language", Session(), config)[1] == "Language: en."
     assert interpret("/lang", Session(), config) == ("reply", "Language: en.", False)
     before = path.read_bytes()
-    assert apply_language_command("esperanto", config) == "Unknown language. Use en or pt-BR."
+    assert apply_language_command("esperanto", config) == "Unknown language. Use en, pt, or pt-BR."
     assert path.read_bytes() == before
     assert config.language == "en"
 
-    assert apply_language_command("pt", config) == "Language: pt-BR."
+    assert apply_language_command("pt", config) == "Idioma: pt-BR."
     assert 'language = "pt-BR"' in path.read_text(encoding="utf-8")
     assert load_config(path).language == "pt-BR"
-    assert apply_language_command("pt_BR", config) == "Language: pt-BR."
-    assert apply_language_command("pt-BR", config) == "Language: pt-BR."
+    assert apply_language_command("pt_BR", config) == "Idioma: pt-BR."
+    assert apply_language_command("pt-BR", config) == "Idioma: pt-BR."
     assert apply_language_command("en", config) == "Language: en."
     assert load_config(path).language == "en"
 
@@ -187,7 +187,7 @@ def test_language_is_saved_and_unknown_values_do_not_write(tmp_path):
     try:
         load_config(path)
     except AgentXError as exc:
-        assert "Unknown language" in str(exc)
+        assert "Idioma desconhecido" in str(exc)
         assert SECRET not in str(exc)
     else:
         raise AssertionError("invalid language should fail")

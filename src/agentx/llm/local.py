@@ -116,6 +116,8 @@ class LocalServer:
             ):
                 self._cancel_timer_locked()
                 return
+            if self._proc is None and self._health_ok():
+                return
             self._stop_locked()
             self._start_locked(decision.threads, decision.context)
 
@@ -202,6 +204,14 @@ class LocalServer:
                 return
             self._stopped = True
             self._stop_locked()
+
+    def _health_ok(self) -> bool:
+        url = f"http://127.0.0.1:{self.settings.port}/health"
+        try:
+            response = httpx.get(url, timeout=0.3, trust_env=False)
+        except httpx.HTTPError:
+            return False
+        return response.status_code == 200
 
     def _start_locked(self, threads: int, context: int) -> None:
         binary = self._which(self.settings.binary) or self.settings.binary

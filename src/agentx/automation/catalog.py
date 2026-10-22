@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
+from agentx.automation.library import library_sources
 from agentx.errors import AgentXError
 
 _ID = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
@@ -63,7 +64,7 @@ def load_catalog(directory: Path) -> list[ScriptInfo]:
     return found
 
 
-def choose_script(message: str, scripts: list[ScriptInfo]) -> ScriptInfo | None:
+def rank_scripts(message: str, scripts: list[ScriptInfo]) -> list[tuple[int, ScriptInfo]]:
     folded = _fold(message)
     ranked: list[tuple[int, str, ScriptInfo]] = []
     for script in scripts:
@@ -79,12 +80,48 @@ def choose_script(message: str, scripts: list[ScriptInfo]) -> ScriptInfo | None:
                 score += 4
         if score:
             ranked.append((score, script.id, script))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return [(score, script) for score, _script_id, script in ranked]
+
+
+def choose_script(message: str, scripts: list[ScriptInfo]) -> ScriptInfo | None:
+    ranked = rank_scripts(message, scripts)
     if not ranked:
         return None
-    ranked.sort(key=lambda item: (-item[0], item[1]))
     if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
         return None
-    return ranked[0][2]
+    return ranked[0][1]
+
+
+def save_new_script(directory: Path, script_id: str, description: str = "") -> Path:
+    """Store a starter Python file. The user can edit it and run it later."""
+    name = script_id.strip().casefold()
+    if not is_script_id(name):
+        raise AgentXError("Use a short script name: letters, digits, and underscores.")
+    text = render_script(name, _clean_description(description, name))
+    return install_text(directory, f"{name}.py", text)
+
+
+def render_script(script_id: str, description: str) -> str:
+    safe = description.replace('"""', "'")
+    return (
+        f'"""{safe}\n'
+        "\n"
+        f"keywords: {script_id}\n"
+        f"patterns: run {script_id}, execute {script_id}\n"
+        '"""\n'
+        "import sys\n"
+        "\n"
+        "\n"
+        "def main() -> int:\n"
+        '    task = sys.argv[1] if len(sys.argv) > 1 else ""\n'
+        '    print(task or "ready")\n'
+        "    return 0\n"
+        "\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        "    raise SystemExit(main())\n"
+    )
 
 
 def add_script(directory: Path, source: Path) -> Path:
@@ -106,6 +143,12 @@ def install_examples(directory: Path) -> list[str]:
         if destination.exists():
             continue
         install_text(directory, item.name, item.read_text(encoding="utf-8"))
+        installed.append(script_id)
+    for script_id, text in library_sources():
+        destination = directory / f"{script_id}.py"
+        if destination.exists():
+            continue
+        install_text(directory, f"{script_id}.py", text)
         installed.append(script_id)
     return installed
 
@@ -173,6 +216,14 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
             folded.append(token)
     folded_patterns = tuple(_fold(pattern) for pattern in patterns if _fold(pattern))
     return ScriptInfo(script_id, path, description, tuple(folded), folded_patterns)
+
+
+def _clean_description(description: str, script_id: str) -> str:
+    text = " ".join(description.replace("\n", " ").split())
+    text = text.strip(" .:-")
+    if not text:
+        return f"Do the task for {script_id}."
+    return text[:160]
 
 
 def _match_line(document: str) -> bool:

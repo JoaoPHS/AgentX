@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentx.errors import AgentXError
+from agentx.i18n import set_language, t
 
 SCOPES = ("local", "all", "orchestrator", "main")
 PROVIDERS = ("openrouter", "anthropic", "openai")
@@ -235,7 +236,6 @@ def load_config(path: Path | None = None) -> AppConfig:
     destination = path if path is not None else default_config_path()
     config = AppConfig(path=destination)
     if destination.exists():
-        _warn_permissions(destination)
         text = destination.read_text(encoding="utf-8")
         try:
             raw = tomllib.loads(text)
@@ -246,6 +246,9 @@ def load_config(path: Path | None = None) -> AppConfig:
         _apply(config, raw)
     _apply_env(config)
     _validate(config)
+    set_language(config.language)
+    if destination.exists():
+        _warn_permissions(destination)
     return config
 
 
@@ -264,7 +267,7 @@ def _warn_permissions(path: Path) -> None:
         return
     mode = path.stat().st_mode
     if mode & 0o077:
-        print("Warning: the config file should have mode 600.", file=sys.stderr)
+        print(t("Warning: the config file should have mode 600."), file=sys.stderr)
 
 
 def _apply(config: AppConfig, raw: dict) -> None:
@@ -336,7 +339,7 @@ def _apply(config: AppConfig, raw: dict) -> None:
     else:
         chosen = normalize_language(raw_language)
         if chosen is None:
-            raise AgentXError("Unknown language. Use en or pt-BR.")
+            raise AgentXError("Unknown language. Use en, pt, or pt-BR.")
         config.language = chosen
 
     context = _table(raw, "context")

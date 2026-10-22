@@ -1,5 +1,14 @@
 import pytest
 
+from agentx.i18n import set_language
+
+
+@pytest.fixture(autouse=True)
+def _english_interface():
+    set_language("en")
+    yield
+    set_language("en")
+
 
 @pytest.fixture(autouse=True)
 def _clear_secret_env(monkeypatch):

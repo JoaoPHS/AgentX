@@ -13,10 +13,12 @@ from agentx.config import (
     is_command_tool,
     default_config_path,
     format_toml_parse_error,
+    normalize_language,
     normalize_scope,
     toml_error_line_text,
     toml_error_location,
 )
+from agentx.i18n import set_language, t
 from agentx.llm.local import loopback_http_url
 
 _ENV_KEYS = {
@@ -38,111 +40,117 @@ def run_doctor(path: Path | None = None) -> tuple[int, str]:
     failed = False
 
     if not destination.is_file():
-        lines.append("Config file: FAIL")
-        lines.append("The config file is missing. Run agentx init.")
-        return 1, "\n".join(lines)
+        lines.append(t("Config file: FAIL"))
+        lines.append(t("The config file is missing. Run agentx init."))
+        return _done(1, lines)
 
-    lines.append("Config file: OK")
+    lines.append(t("Config file: OK"))
     text = destination.read_text(encoding="utf-8")
     try:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
-        lines.append(f"TOML: FAIL ({_toml_fail_detail(exc, text)})")
+        lines.append(t(f"TOML: FAIL ({_toml_fail_detail(exc, text)})"))
         extra = toml_error_line_text(text, toml_error_location(exc)[0])
         if extra is not None:
             lines.append(extra)
-        return 1, "\n".join(_without_secrets(lines))
+        return _done(1, lines, secrets=True)
 
     if not isinstance(raw, dict):
-        lines.append("TOML: FAIL")
-        return 1, "\n".join(lines)
+        lines.append(t("TOML: FAIL"))
+        return _done(1, lines)
 
-    lines.append("TOML: OK")
+    lines.append(t("TOML: OK"))
+    _apply_file_language(raw)
     failed = _mcp_lines(raw, lines)
 
     routing, routing_error = _section(raw, "routing")
     local, local_error = _section(raw, "local")
     if routing_error:
-        lines.append(f"routing: FAIL ({routing_error})")
+        lines.append(t(f"routing: FAIL ({routing_error})"))
         failed = True
         routing = {}
     if local_error:
-        lines.append(f"local: FAIL ({local_error})")
+        lines.append(t(f"local: FAIL ({local_error})"))
         failed = True
         local = {}
 
     scope_value = routing.get("remote_scope", "local")
     scope = normalize_scope(scope_value) if isinstance(scope_value, str) else None
     if scope is None:
-        lines.append("remote_scope: FAIL (unknown)")
+        lines.append(t("remote_scope: FAIL (unknown)"))
         failed = True
     else:
-        lines.append("remote_scope: OK")
+        lines.append(t("remote_scope: OK"))
 
     provider_value = routing.get("remote_provider", "anthropic")
     if not isinstance(provider_value, str) or provider_value not in PROVIDERS:
-        lines.append("remote_provider: FAIL (unknown)")
+        lines.append(t("remote_provider: FAIL (unknown)"))
         failed = True
         remote_provider = ""
     else:
-        lines.append("remote_provider: OK")
+        lines.append(t("remote_provider: OK"))
         remote_provider = provider_value
 
     engine = "llama"
     if "provider" in local or "local_provider" in local:
         raw_engine = local.get("provider", local.get("local_provider"))
         if not isinstance(raw_engine, str) or raw_engine.strip().casefold() not in LOCAL_PROVIDERS:
-            lines.append("local.provider: FAIL (unknown)")
+            lines.append(t("local.provider: FAIL (unknown)"))
             failed = True
             engine = ""
         else:
-            lines.append("local.provider: OK")
+            lines.append(t("local.provider: OK"))
             engine = raw_engine.strip().casefold() or "llama"
 
     if scope is not None and scope != "local" and remote_provider:
         if _provider_key_present(raw, remote_provider):
-            lines.append(f"{remote_provider} API key: OK")
+            lines.append(t(f"{remote_provider} API key: OK"))
         else:
-            lines.append(f"{remote_provider} API key: FAIL (missing)")
+            lines.append(t(f"{remote_provider} API key: FAIL (missing)"))
             failed = True
 
     if scope is not None and scope != "all" and engine:
         if engine == "ollama":
             model = local.get("model", "")
             if isinstance(model, str) and model.strip():
-                lines.append("local.model: OK")
+                lines.append(t("local.model: OK"))
             else:
-                lines.append("local.model: FAIL (missing)")
+                lines.append(t("local.model: FAIL (missing)"))
                 failed = True
             base = local.get("base_url", "")
             url = base if isinstance(base, str) else ""
             if loopback_http_url(url):
-                lines.append("local.base_url: OK")
+                lines.append(t("local.base_url: OK"))
             else:
-                lines.append("local.base_url: FAIL (not loopback)")
+                lines.append(t("local.base_url: FAIL (not loopback)"))
                 failed = True
         else:
             model_path = local.get("model_path", "")
             if not isinstance(model_path, str) or not model_path.strip():
-                lines.append("local.model_path: FAIL (missing)")
+                lines.append(t("local.model_path: FAIL (missing)"))
                 failed = True
             elif not Path(model_path).is_file():
-                lines.append("local.model_path: FAIL (path is not a file)")
+                lines.append(t("local.model_path: FAIL (path is not a file)"))
                 failed = True
             else:
-                lines.append("local.model_path: OK")
+                lines.append(t("local.model_path: OK"))
     elif scope == "all":
-        lines.append("local.model_path: OK")
+        lines.append(t("local.model_path: OK"))
 
     if os.name == "posix":
         mode = destination.stat().st_mode
         if mode & 0o077:
-            lines.append("config permissions: WARN")
+            lines.append(t("config permissions: WARN"))
         else:
-            lines.append("config permissions: OK")
+            lines.append(t("config permissions: OK"))
 
     code = 1 if failed else 0
-    return code, "\n".join(_without_secrets(lines))
+    return _done(code, lines, secrets=True)
+
+
+def _done(code: int, lines: list[str], *, secrets: bool = False) -> tuple[int, str]:
+    shown = _without_secrets(lines) if secrets else lines
+    return code, "\n".join(t(line) for line in shown)
 
 
 def _toml_fail_detail(exc: tomllib.TOMLDecodeError, text: str) -> str:
@@ -158,21 +166,32 @@ def _toml_fail_detail(exc: tomllib.TOMLDecodeError, text: str) -> str:
 def _mcp_lines(raw: dict, lines: list[str]) -> bool:
     mcp, error = _section(raw, "mcp")
     if error:
-        lines.append(f"mcp: FAIL ({error})")
+        lines.append(t(f"mcp: FAIL ({error})"))
         return True
     if not mcp or mcp.get("enabled") is not True:
-        lines.append("mcp: OK (off)")
+        lines.append(t("mcp: OK (off)"))
         return False
     binary = mcp.get("binary", "droidmcp")
     if not isinstance(binary, str) or shutil.which(binary) is None:
-        lines.append("mcp: WARN (binary not on PATH)")
+        lines.append(t("mcp: WARN (binary not on PATH)"))
     else:
-        lines.append("mcp: OK")
+        lines.append(t("mcp: OK"))
     tools = mcp.get("tools", [])
     if isinstance(tools, list) and any(is_command_tool(str(name)) for name in tools):
-        lines.append("mcp tools: FAIL (command tools are off)")
+        lines.append(t("mcp tools: FAIL (command tools are off)"))
         return True
     return False
+
+
+def _apply_file_language(raw: dict) -> None:
+    preferences = raw.get("preferences")
+    if not isinstance(preferences, dict):
+        return
+    value = preferences.get("language", "")
+    if not isinstance(value, str) or not value.strip():
+        set_language("en")
+        return
+    set_language(normalize_language(value) or "en")
 
 
 def _section(raw: dict, name: str) -> tuple[dict, str | None]:
