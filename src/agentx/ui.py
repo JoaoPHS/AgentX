@@ -33,7 +33,8 @@ GUIDES: tuple[tuple[str, str], ...] = (
         "agentx opens this menu. agentx \"task\" runs once and exits. "
         "agentx init writes the config. agentx doctor checks it and never prints a key. "
         "agentx help prints this guide. "
-        "In chat: /menu, /exit, /scripts, /model, /language, /key, /engineer.",
+        "In chat: /menu, /exit, /voice, /scripts, /memory, /forget, /model, /language, /key, /engineer. "
+        "agentx voice speaks one task.",
     ),
     (
         "Scripts",
@@ -42,8 +43,9 @@ GUIDES: tuple[tuple[str, str], ...] = (
         "script run NAME runs that file. script examples installs the 50 included scripts. "
         "They cover small checks and short text tasks. "
         "script add FILE copies one file. "
-        "script install NAME prints the URL and SHA-256 and asks before it writes. "
+        "script install NAME prints the URL, the SHA-256, and a static safety check, then asks before it writes. "
         "The hash checks the file. It does not mean the script is safe. "
+        "A script that reads ~/.config/agentx or runs eval is blocked. "
         "A matching phrase runs the script with no model call.",
     ),
     (
@@ -79,12 +81,9 @@ GUIDES: tuple[tuple[str, str], ...] = (
     ),
     (
         "llama-server",
-        "Typing agentx asks before the menu. Yes shows the llama-server command for the other terminal. "
+        "Typing agentx asks before the menu. Yes keeps llama-server. AgentX starts that process in the background when a task needs it, then stops it when AgentX exits or after it sits idle. "
         "No saves Ollama in the config and shows ollama serve. "
-        "Start it in one terminal, then run agentx in another. "
-        "llama-server -m MODEL.gguf --host 127.0.0.1 --port 8080. "
-        "If that port already answers, AgentX uses it. "
-        "If nothing is listening, AgentX can start it for the task and stop it after it sits idle. "
+        "If 127.0.0.1:8080 already answers, AgentX uses that process. "
         "On Termux, agentx init can ask before it downloads Qwen2.5-1.5B-Instruct Q4_K_M. "
         "The file is kept only when it is about 1.0G.",
     ),
@@ -101,7 +100,7 @@ GUIDES: tuple[tuple[str, str], ...] = (
         "Type the task after the arrow. "
         "thinking. thinking.. thinking... means a model is still working. "
         "The dots stop when the answer starts. "
-        "/menu returns here. /exit quits. "
+        "/menu returns here. /voice speaks the next task. /memory lists saved facts. /exit quits. "
         "/language en, pt, or pt-BR changes this menu, the guide, errors, and the model answers. "
         "Typed commands such as /model stay as written.",
     ),
@@ -127,7 +126,8 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
         "agentx abre este menu. agentx \"tarefa\" roda uma vez e sai. "
         "agentx init grava a config. agentx doctor confere a config e nunca mostra uma chave. "
         "agentx help imprime este guia. "
-        "No chat: /menu, /exit, /scripts, /model, /language, /key, /engineer.",
+        "No chat: /menu, /exit, /voice, /scripts, /memory, /forget, /model, /language, /key, /engineer. "
+        "agentx voice fala uma tarefa.",
     ),
     (
         "Scripts",
@@ -136,8 +136,9 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
         "script run NOME executa esse arquivo. script examples instala os 50 scripts inclusos. "
         "Eles cobrem consultas curtas e tarefas de texto. "
         "script add ARQUIVO copia um arquivo. "
-        "script install NOME mostra a URL e o SHA-256 e pergunta antes de gravar. "
+        "script install NOME mostra a URL, o SHA-256 e uma checagem estática, depois pergunta antes de gravar. "
         "O hash confere o arquivo. Não significa que o script é seguro. "
+        "Um script que lê ~/.config/agentx ou chama eval é bloqueado. "
         "Uma frase que combina roda o script sem chamar o modelo.",
     ),
     (
@@ -172,12 +173,9 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
     ),
     (
         "llama-server",
-        "Digitar agentx pergunta antes do menu. Sim mostra o comando do llama-server para o outro terminal. "
+        "Digitar agentx pergunta antes do menu. Sim mantém o llama-server. O AgentX inicia esse processo em segundo plano quando uma tarefa precisa dele, e o encerra ao sair ou depois que fica ocioso. "
         "Não grava o Ollama na config e mostra ollama serve. "
-        "Inicie o servidor em um terminal e rode o agentx em outro. "
-        "llama-server -m MODELO.gguf --host 127.0.0.1 --port 8080. "
-        "Se essa porta já responde, o AgentX usa esse processo. "
-        "Se nada estiver escutando, o AgentX pode iniciar o servidor para a tarefa e encerrá-lo depois que ficar ocioso. "
+        "Se 127.0.0.1:8080 já responde, o AgentX usa esse processo. "
         "No Termux, agentx init pode perguntar antes de baixar o Qwen2.5-1.5B-Instruct Q4_K_M. "
         "O arquivo só é guardado quando tem cerca de 1,0G.",
     ),
@@ -194,7 +192,7 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
         "Digite a tarefa depois da seta. "
         "pensando. pensando.. pensando... significa que um modelo ainda está trabalhando. "
         "Os pontos param quando a resposta começa. "
-        "/menu volta para cá. /exit sai. "
+        "/menu volta para cá. /voice fala a próxima tarefa. /memory lista os fatos salvos. /exit sai. "
         "/language en, pt ou pt-BR muda este menu, o guia, os erros e as respostas do modelo. "
         "Comandos digitados, como /model, continuam escritos assim.",
     ),

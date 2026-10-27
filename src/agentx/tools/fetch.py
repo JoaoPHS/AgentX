@@ -16,6 +16,7 @@ from agentx.errors import AgentXError
 
 _SKIP_TAGS = {"script", "style", "noscript", "nav", "footer"}
 _PREFERRED_TAGS = {"article", "main"}
+READER_PREFIX = "https://r.jina.ai/"
 
 
 # Visible text at or below this length can still be a script shell.
@@ -110,6 +111,68 @@ def download(
         text=text,
         truncated=truncated,
         script_shell=looks_like_script_shell(html, text),
+        timeout_seconds=options.timeout_seconds,
+        max_bytes=options.max_bytes,
+        max_redirects=options.max_redirects,
+    )
+
+
+def reader_url(url: str) -> str:
+    """Return the Jina Reader URL for a page that already passed `check_url`."""
+    target = (url or "").strip()
+    if target.startswith(READER_PREFIX):
+        return target
+    return f"{READER_PREFIX}{target}"
+
+
+def download_reader(
+    url: str,
+    *,
+    settings: FetchSettings | None = None,
+    resolve=default_resolve,
+    transport: httpx.BaseTransport | None = None,
+) -> Page:
+    """Fetch a Markdown extract from r.jina.ai when the static page is a script shell."""
+    options = settings or FetchSettings()
+    check_url(url, resolve)
+    current = reader_url(url)
+    redirects = 0
+    with httpx.Client(
+        transport=transport,
+        trust_env=False,
+        follow_redirects=False,
+        timeout=options.timeout_seconds,
+        headers={"User-Agent": "agentx", "Accept": "text/plain, text/markdown, */*"},
+    ) as client:
+        while True:
+            check_url(current, resolve)
+            with client.stream("GET", current) as response:
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise AgentXError("The page returned an empty redirect.")
+                    redirects += 1
+                    if redirects > options.max_redirects:
+                        raise AgentXError("Too many redirects.")
+                    current = urljoin(current, location)
+                    continue
+                if response.status_code >= 400:
+                    raise AgentXError(
+                        f"The page returned status {response.status_code}."
+                    )
+                raw, truncated = _read_limited(response, options.max_bytes)
+                content_type = response.headers.get("content-type", "")
+            break
+    if not _looks_like_text(content_type, raw):
+        raise AgentXError("The Markdown reader did not return usable text.")
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise AgentXError("The Markdown reader did not return usable text.")
+    return Page(
+        url=current,
+        text=text,
+        truncated=truncated,
+        script_shell=False,
         timeout_seconds=options.timeout_seconds,
         max_bytes=options.max_bytes,
         max_redirects=options.max_redirects,

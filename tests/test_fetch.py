@@ -8,9 +8,11 @@ from agentx.errors import AgentXError
 from agentx.tools.fetch import (
     check_url,
     download,
+    download_reader,
     extract_article,
     extract_with_parser,
     looks_like_script_shell,
+    reader_url,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "article.html"
@@ -162,3 +164,52 @@ def test_empty_or_app_shell_is_marked_without_a_browser():
     assert page.timeout_seconds == 7
     assert page.max_bytes == 1000
     assert page.max_redirects == 2
+
+
+def test_reader_url_prefixes_jina():
+    assert reader_url("https://example.com/app") == "https://r.jina.ai/https://example.com/app"
+    assert (
+        reader_url("https://r.jina.ai/https://example.com/app")
+        == "https://r.jina.ai/https://example.com/app"
+    )
+
+
+def test_reader_is_not_called_when_the_page_is_blocked():
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(200, text="stolen")
+
+    with pytest.raises(AgentXError, match="blocked"):
+        download_reader(
+            "http://intranet.example/a",
+            resolve=lambda _host, _port: ["10.1.2.3"],
+            transport=httpx.MockTransport(handler),
+        )
+    assert seen == []
+
+
+def test_reader_returns_markdown_for_a_script_shell():
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        if request.url.host == "r.jina.ai":
+            return httpx.Response(
+                200,
+                text="# Title\n\nThe cloud fact is in Markdown.",
+                headers={"content-type": "text/plain"},
+            )
+        raise AssertionError("the original page should not be fetched again")
+
+    page = download_reader(
+        "https://example.com/app",
+        settings=FetchSettings(max_bytes=1000, timeout_seconds=7),
+        resolve=_public,
+        transport=httpx.MockTransport(handler),
+    )
+    assert seen == ["https://r.jina.ai/https://example.com/app"]
+    assert "cloud fact" in page.text
+    assert page.script_shell is False
+    assert page.truncated is False

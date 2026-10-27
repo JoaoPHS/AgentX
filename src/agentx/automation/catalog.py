@@ -187,6 +187,91 @@ def rank_scripts(message: str, scripts: list[ScriptInfo]) -> list[tuple[int, Scr
     return [(score, script) for score, _script_id, script in ranked]
 
 
+PROMPT_SCRIPT_LIMIT = 5
+
+
+def select_scripts(
+    message: str,
+    scripts: list[ScriptInfo],
+    *,
+    limit: int = PROMPT_SCRIPT_LIMIT,
+) -> list[ScriptInfo]:
+    """Return the few scripts that belong in a model prompt.
+
+    Keyword hits from `rank_scripts` come first. BM25 fills the rest from
+    id, description, and keywords. Nothing is sent when no term overlaps.
+    """
+    if not scripts or limit <= 0:
+        return []
+    picked: list[ScriptInfo] = []
+    seen: set[str] = set()
+    for _score, script in rank_scripts(message, scripts):
+        if script.id in seen:
+            continue
+        seen.add(script.id)
+        picked.append(script)
+        if len(picked) >= limit:
+            return picked
+    if picked:
+        return picked
+    remaining = [script for script in scripts if script.id not in seen]
+    if not remaining:
+        return picked
+    from agentx.context import _query_terms, _tokens, bm25_scores
+
+    query = _query_terms(_tokens(message))
+    if not query:
+        return picked
+    documents = [_script_document(script) for script in remaining]
+    ranked = sorted(
+        zip(bm25_scores(query, documents), remaining),
+        key=lambda item: (-item[0], item[1].id),
+    )
+    for score, script in ranked:
+        if score <= 0:
+            continue
+        picked.append(script)
+        if len(picked) >= limit:
+            break
+    if picked:
+        return picked
+    if len(scripts) <= limit:
+        return list(scripts)
+    return []
+
+
+def select_tools(message: str, tools, *, limit: int = PROMPT_SCRIPT_LIMIT) -> tuple[str, ...]:
+    names = [str(tool) for tool in tools if str(tool).strip()]
+    if not names or limit <= 0:
+        return ()
+    from agentx.context import _query_terms, _tokens, bm25_scores
+
+    query = _query_terms(_tokens(message))
+    if not query:
+        return ()
+    documents = [_tool_document(name) for name in names]
+    ranked = sorted(
+        zip(bm25_scores(query, documents), names),
+        key=lambda item: (-item[0], item[1]),
+    )
+    picked = [name for score, name in ranked if score > 0][:limit]
+    if picked:
+        return tuple(picked)
+    if len(names) <= limit:
+        return tuple(names)
+    return ()
+
+
+def _script_document(script: ScriptInfo) -> list[str]:
+    text = " ".join((script.id, script.description, *script.keywords, *script.patterns))
+    return [token for token in re.findall(r"[0-9a-z_.-]+", _fold(text)) if token]
+
+
+def _tool_document(name: str) -> list[str]:
+    folded = _fold(name.replace("_", " "))
+    return [token for token in re.findall(r"[0-9a-z]+", folded) if token]
+
+
 def choose_script(message: str, scripts: list[ScriptInfo]) -> ScriptInfo | None:
     ranked = rank_scripts(message, scripts)
     if not ranked:

@@ -29,26 +29,24 @@ MIN_BYTES = 986 * 1024 * 1024
 MAX_BYTES = int(1.1 * 1024 * 1024 * 1024)
 _READY = """\
 llama-server is ready to use.
-Start it in one terminal and leave that terminal open:
+AgentX starts it in the background when a task needs it, then stops it
+when AgentX exits or after it sits idle.
 
-  cd ~/ollama/models
-  llama-server -m {name} --host 127.0.0.1 --port 8080
+  model: {name}
+  listen: 127.0.0.1:8080
 
-Open a second terminal and run agentx there.
-AgentX talks to the server that is already listening on 127.0.0.1:8080.
-It does not start a second server while that one is up.
+If that port already answers, AgentX uses the process that is already there.
 """
 
 _READY_PT = """\
 O llama-server está pronto para uso.
-Inicie-o em um terminal e deixe esse terminal aberto:
+O AgentX inicia o servidor em segundo plano quando uma tarefa precisa dele,
+e o encerra ao sair ou depois que fica ocioso.
 
-  cd ~/ollama/models
-  llama-server -m {name} --host 127.0.0.1 --port 8080
+  modelo: {name}
+  escuta: 127.0.0.1:8080
 
-Abra um segundo terminal e rode o agentx nele.
-O AgentX fala com o servidor que já escuta em 127.0.0.1:8080.
-Ele não inicia um segundo servidor enquanto esse estiver no ar.
+Se essa porta já responde, o AgentX usa o processo que já está no ar.
 """
 
 

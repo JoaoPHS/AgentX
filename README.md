@@ -21,13 +21,13 @@ agentx script examples
 agentx "show a toast that the backup finished"
 ```
 
-A local model is optional. Use `llama-server` with a GGUF file, or Ollama at `127.0.0.1:11434`. On Termux, `agentx init` can ask before it downloads Qwen2.5-1.5B-Instruct Q4_K_M into `~/ollama/models`. The file is kept only when it is about 1.0G. Start `llama-server` on `127.0.0.1:8080` in one terminal, then run `agentx` in another. If that server is already up, AgentX uses it.
+A local model is optional. Use `llama-server` with a GGUF file, or Ollama at `127.0.0.1:11434`. On Termux, `agentx init` can ask before it downloads Qwen2.5-1.5B-Instruct Q4_K_M into `~/ollama/models`. The file is kept only when it is about 1.0G. AgentX starts `llama-server` on `127.0.0.1:8080` in the background when a task needs it, then stops that process when AgentX exits or after it sits idle. If that port already answers, AgentX uses the process that is already there.
 
-When you type `agentx` in a terminal, it asks whether you want llama-server. Yes prints the command for the other terminal. No saves Ollama in the config and tells you to run `ollama serve`.
+When you type `agentx` in a terminal, it asks whether you want llama-server. Yes keeps that engine. No saves Ollama in the config and tells you to run `ollama serve`.
 
 A remote key is optional. OpenRouter, Anthropic, and OpenAI are the choices. Scope `all` does not need a local file.
 
-JavaScript pages need an optional extra: `pip install 'agentx[browser]'`. AgentX does not download a browser.
+JavaScript pages first try a plain download. If the page is a script shell, AgentX asks `https://r.jina.ai/<URL>` for a Markdown extract. The optional extra `pip install 'agentx[browser]'` can still render the page once when that extra is installed. AgentX does not download a browser.
 
 DroidMCP is optional and stays a separate project. Open the **DroidMCP** item on the home menu. The first time, choose **Download and set up**. That fetches the pinned sensors binary and checks the checksum. Then choose Battery, Wi-Fi, Brightness, Volume, or Sensor list with the arrows and press Enter. Location, shell, SMS, contacts, and GitHub stay off. AgentX does not vendor DroidMCP and does not listen as an MCP server. With the client off, tasks still use scripts, local models, and remote APIs. No combined RAM or latency numbers are published yet.
 
@@ -39,13 +39,15 @@ You can drop a Python file in the scripts folder, create one with `agentx script
 
 CPU thermal zones slow the local model at 70 C and pause generation at 85 C.
 
-`summarize_url` starts with a plain download. If the page is empty or only a script shell, the optional browser extra can render it once. Without that extra, you get the static text and a short note, not a made-up summary.
+`summarize_url` starts with a plain download. If the page is empty or only a script shell, AgentX asks `https://r.jina.ai/<URL>` for Markdown. The optional browser extra can still render the page once when it is installed. If both fallbacks fail, you get the static text and a short note, not a made-up summary.
 
 `OPENAI_API_KEY` sits next to OpenRouter and Anthropic. Set `remote_provider = "openai"` and choose the scope with `/model openai main`, `/model openai all`, or `/model openai orchestrator`.
 
 `/model` writes the scope, provider, and model id into the config. `/key`, or `agentx key`, stores a provider key and does not print it. `/language` stores `en` or `pt-BR`. `pt` is stored as `pt-BR`. The next launch restores them. `agentx init` does not replace an existing config or delete the scripts folder.
 
 One task can read a single matching folder, add a short excerpt to that turn, and drop the excerpt when the turn ends.
+
+Facts such as a server name or a destination email can be stored with `remember that my server is home`. They live in `~/.config/agentx/memory.db`. The next task sees those facts. `/memory` lists them. `/forget server` drops one. API keys and other secrets are not stored.
 
 `/language en`, `/language pt`, or `/language pt-BR` changes the menus, the help guide, errors, and the model answers. Typed commands such as `/model` and `agentx doctor` stay the same words.
 
@@ -255,7 +257,7 @@ A condition such as `but`, `if`, `don't`, or `não` does not create or run a scr
 
 `script examples` copies the 50 included scripts: toast, notification, battery, and smaller checks and text helpers. Those same files are stored in the `scripts` folder of this repository. A clear phrase runs one of them without a model call.
 
-`script install NAME` reads a community index and can save that one Python file. The default index is the script list in this repository. A public gist URL, or `gist:ID`, offers the Python file from that gist. If the gist has several Python files, add the file name. Before anything is written, AgentX prints the source URL, the SHA-256, and a reminder that installing does not mean the script is safe. Confirm with `y` at a terminal, or pass `--yes`. Without one of those, the file is not saved. Install does not run the script. Downloads stay on HTTPS, reject private addresses, and accept only GitHub hosts plus the host of your index. Set `scripts.index_url` when you want a different community index.
+`script install NAME` reads a community index and can save that one Python file. The default index is the script list in this repository. A public gist URL, or `gist:ID`, offers the Python file from that gist. If the gist has several Python files, add the file name. Before anything is written, AgentX prints the source URL, the SHA-256, a static safety check, and a reminder that installing does not mean the script is safe. A script that reads `~/.config/agentx`, calls `eval` or `exec`, or sends HTTP to a raw IP is blocked. Other process or network use is a warning. Confirm with `y` at a terminal, or pass `--yes`. Without one of those, the file is not saved. Install does not run the script. Downloads stay on HTTPS, reject private addresses, and accept only GitHub hosts plus the host of your index. Set `scripts.index_url` when you want a different community index.
 
 A script needs a docstring with `keywords`, `patterns`, or both. The file name is the id the orchestrator uses. A pattern is a phrase or a regular expression. Words in a phrase may have a few words between them, so `send a notice` matches `send a short notice` and `notify me` matches `notify me that the backup finished`. That match does not call a model.
 
@@ -280,6 +282,7 @@ The folder is chosen in this order, and the search stops at the first hit:
 1. An explicit path in the message, when that path stays inside the working directory, the scripts directory, or `context.dir`. A path that escapes those roots is not read. That includes `..` and a symlink whose target is outside.
 2. A saved script whose id or keyword matches a word in the message, such as backup. Only that script file is included, unless the same name is a subdirectory.
 3. A child directory of the working directory or of the scripts directory whose name matches a word in the message.
+4. A BM25 ranking of text files in the working directory and one folder below it, using the words in the request. Files with no overlapping terms are skipped.
 
 If nothing matches, the task runs as usual and no excerpt is added. AgentX does not walk the home directory or the rest of the disk, and it does not call an embedding model.
 
@@ -292,7 +295,7 @@ At most 12 files are included. Each file contributes at most 8 KB. The whole exc
 The orchestrator does not answer you. It splits the task so a larger model only sees what a routine cannot finish.
 
 1. If the whole message is already a routine, no model is spent on routing. `run script NAME` runs that saved file. `create a script called NAME` stores a starter file. `list scripts` prints what is saved. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, rewrite, and a short "what is" go to `quick_answer`, in English or Portuguese. A request that clearly names one saved script goes to `run_script`. These paths do not start DroidMCP. A condition or a refusal, such as `but`, `if`, `not`, or `don't`, does not run or save a script. On scope `all` or `main`, that ambiguous request is not sent to the remote key by a weak rule. If two scripts match equally, AgentX lists the names instead of guessing.
-2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. The analysis sees every saved script id and may name one of them. It cannot invent an id. Routines run first. This analysis is the only place that can add a DroidMCP step, and only for a name listed in `mcp.tools` while the client is on. The main agent, if needed, is last and receives the routine output and the tool text instead of redoing the fetch, the summary, or the tool call.
+2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Before that call, BM25 keeps about five saved scripts whose words match the request, plus any MCP tool names that also match. The rest stay out of the prompt. The analysis may name one of those ids. It cannot invent an id. Routines run first. A later step receives the previous step output, so `summarize this page and email me the summary` can fetch the page and then run the email script with that text. A JSON list of those steps is also accepted. This analysis is the only place that can add a DroidMCP step, and only for a name listed in `mcp.tools` while the client is on. The main agent, if needed, is last and receives the routine output and the tool text instead of redoing the fetch, the summary, or the tool call.
 3. With scope `orchestrator` or `all`, that analysis uses your remote key. With `local` or `main`, it uses the local model. If the orchestrator has no model, keyword rules choose the path. Another key is not spent just to decide.
 
 `/engineer` followed by the task skips analysis and sends the whole task to the main agent.
@@ -305,19 +308,21 @@ Page downloads stop at 2 MB, time out, and reject URLs that resolve to private o
 
 `summarize_url` reads a page with a plain HTTP download. That path does not run JavaScript and does not start a browser. Most static articles finish there.
 
-If the extract is empty, or the page is only a script shell such as a `noscript` message or an empty app root, and the optional browser extra is installed, the same URL is rendered once. Rendering repeats the URL checks: `http` or `https` only, no username or password, no private or link-local address, and each redirect is checked again. The render uses the same timeout and size cap.
+If the extract is empty, or the page is only a script shell such as a `noscript` message or an empty app root, AgentX asks `https://r.jina.ai/<URL>` for a Markdown extract. The original URL is checked first. The reader URL is checked the same way: `http` or `https` only, no username or password, no private or link-local address, and each redirect is checked again.
+
+If the optional browser extra is installed, the same URL can also be rendered once. Rendering repeats those URL checks and uses the same timeout and size cap.
 
 ```bash
 pip install 'agentx[browser]'
 ```
 
-Install a browser runtime yourself if you want rendering. AgentX does not download one and does not shell out to install one. On Termux a desktop browser often is not available. In that case, or when the extra is missing, you get the static text and a short note that the page looks script-rendered. That note is not a summary.
+Install a browser runtime yourself if you want rendering. AgentX does not download one and does not shell out to install one. On Termux a desktop browser often is not available. The Markdown reader is the default fallback there. If that reader also fails, you get the static text and a short note that the page looks script-rendered. That note is not a summary.
 
 This fallback is only for `summarize_url`. It is not a graphical browser, and other tasks do not start it.
 
 ## Chat
 
-With no arguments in a terminal, `agentx` first asks about llama-server, then opens a cyan home menu. Arrow keys move, Enter selects, and `q` goes back. The pages are Chat, Scripts, Configuration, Help guide, and Check config. The Help guide explains what AgentX is, what it is for, commands, scripts, API keys, DroidMCP, running locally, llama-server, and `ollama serve`. `agentx help` prints the same pages. While a task is running, the terminal shows `thinking`, then `thinking.`, `thinking..`, and `thinking...` in a loop until the answer starts. `/menu` returns to the home menu. Outside a terminal, `agentx` keeps the plain `>` prompt and does not ask about the engine.
+With no arguments in a terminal, `agentx` first asks about llama-server, then opens a cyan home menu. Arrow keys move, Enter selects, and `q` goes back. The pages are Chat, Speak a task, Scripts, Configuration, Help guide, and Check config. Speak a task, `agentx voice`, and `/voice` use `termux-speech-to-text` from Termux:API, then send the transcript to the orchestrator. The Help guide explains what AgentX is, what it is for, commands, scripts, API keys, DroidMCP, running locally, llama-server, and `ollama serve`. `agentx help` prints the same pages. While a task is running, the terminal shows `thinking`, then `thinking.`, `thinking..`, and `thinking...` in a loop until the answer starts. `/menu` returns to the home menu. Outside a terminal, `agentx` keeps the plain `>` prompt and does not ask about the engine.
 
 The saved language starts as English. `/language pt` or `/language pt-BR` switches the menus, the help guide, errors, and the model answers to Brazilian Portuguese. Typed commands such as `/model` stay as written.
 
@@ -334,6 +339,9 @@ The saved language starts as English. `/language pt` or `/language pt-BR` switch
 /key anthropic
 /engineer review this function and say what is missing
 /scripts
+/memory
+/forget server
+/voice
 /menu
 ```
 

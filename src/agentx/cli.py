@@ -33,7 +33,10 @@ from agentx.automation.catalog import (
     scripts_for_config,
 )
 from agentx.automation.runner import run_script
+from agentx.automation.lint import is_blocked
 from agentx.automation.registry import is_gist_target, stage_gist, stage_named
+from agentx.memory import drop_fact, format_facts, load_facts
+from agentx.voice import capture_speech
 from agentx.orchestrator import Orchestrator
 from agentx.resources.governor import Governor
 from agentx.ui import (
@@ -60,6 +63,7 @@ Usage:
   agentx script add FILE copy a Python script into the script directory
   agentx script install NAME [--yes] install a community script, or a public gist URL
   agentx script examples install the 50 included scripts
+  agentx voice           speak one task through Termux:API
 
 In the chat:
   /model                      show the current key scope
@@ -76,6 +80,9 @@ In the chat:
   /key PROVIDER KEY           save a provider key in the config
   /engineer <task>            send the task straight to the main agent
   /scripts                    list installed automation scripts
+  /memory                     list remembered facts
+  /forget KEY                 drop one remembered fact
+  /voice                      speak the next task
   /menu                       return to the home menu
   /exit
 """
@@ -95,6 +102,7 @@ Uso:
   agentx script add ARQUIVO copia um script Python para a pasta de scripts
   agentx script install NOME [--yes] instala um script da comunidade, ou uma URL de gist público
   agentx script examples instala os 50 scripts inclusos
+  agentx voice           fala uma tarefa pelo Termux:API
 
 No chat:
   /model                      mostra o escopo atual da chave
@@ -112,6 +120,9 @@ No chat:
   /key PROVEDOR CHAVE         salva a chave do provedor na config
   /engineer <tarefa>          manda a tarefa direto ao agente principal
   /scripts                    lista os scripts instalados
+  /memory                     lista os fatos lembrados
+  /forget CHAVE               apaga um fato lembrado
+  /voice                      fala a próxima tarefa
   /menu                       volta ao menu inicial
   /exit
 """
@@ -213,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
         enable_ansi()
     runtime = build_runtime(config)
     try:
+        if args == ["voice"]:
+            return run_voice(runtime)
         if args:
             return run_once(runtime, " ".join(args))
         return repl(runtime)
@@ -244,12 +257,8 @@ def choose_local_engine(config: AppConfig, *, answer: str | None = None) -> str:
         if failed:
             print(failed, file=sys.stderr)
             return config.local.provider
-        model = config.local.model_path.strip() or "MODEL.gguf"
-        print(t("Open another terminal and start llama-server there. Leave that terminal open."))
-        print()
-        print(f"  llama-server -m {_shell_arg(model)} --host 127.0.0.1 --port {config.local.port}")
-        print()
-        print(t("Keep using AgentX in this terminal."))
+        print(t("AgentX starts llama-server in the background when a task needs it."))
+        print(t("It stops that process when AgentX exits, or after it sits idle."))
         return "llama"
     model = config.local.model.strip() or "qwen2.5:1.5b"
     failed = _save_sections(
@@ -272,12 +281,6 @@ def choose_local_engine(config: AppConfig, *, answer: str | None = None) -> str:
         )
     )
     return "ollama"
-
-
-def _shell_arg(value: str) -> str:
-    if value and not any(char in value for char in ' \t"\'$'):
-        return value
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _isatty(stream) -> bool:
@@ -324,6 +327,7 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
             set_language(runtime.config.language)
         choices = [
             Choice("chat", t("Chat")),
+            Choice("voice", t("Speak a task")),
             Choice("scripts", t("Scripts")),
             Choice("droidmcp", "DroidMCP"),
             Choice("config", t("Configuration")),
@@ -343,6 +347,9 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
         if picked == "chat":
             if chat(runtime) == "exit":
                 return 0
+        elif picked == "voice":
+            if speak_task(runtime) == "exit":
+                return 0
         elif picked == "scripts":
             scripts_menu(runtime, read_key_fn=read_key_fn, write=write)
         elif picked == "droidmcp":
@@ -361,7 +368,7 @@ def _pick_local_engine(runtime: Runtime, *, read_key_fn=None, write=None) -> Non
         "AgentX",
         t("Pick the local model"),
         [
-            Choice("llama", t("llama-server in another terminal")),
+            Choice("llama", t("llama-server, started by AgentX")),
             Choice("ollama", t("Ollama on this machine")),
         ],
         read_key_fn=read_key_fn or _bound_read_key,
@@ -376,7 +383,7 @@ def _pick_local_engine(runtime: Runtime, *, read_key_fn=None, write=None) -> Non
 def chat(runtime: Runtime) -> str:
     if _isatty(sys.stdout):
         print("\033[2J\033[H", end="")
-    print(_tone_prompt(t("Chat  ·  /menu returns  ·  /exit quits")))
+    print(_tone_prompt(t("Chat  ·  /menu returns  ·  /voice speaks  ·  /exit quits")))
     try:
         while True:
             try:
@@ -386,6 +393,12 @@ def chat(runtime: Runtime) -> str:
                 return "menu"
             if not line.strip():
                 continue
+            if line.strip() in {"/voice", "/speak"}:
+                spoken = listen_for_task()
+                if not spoken:
+                    continue
+                print(tr("Heard: {text}", text=spoken))
+                line = spoken
             outcome = run_line(runtime, line)
             if outcome in {"exit", "menu"}:
                 return outcome
@@ -769,6 +782,31 @@ def _mcp_card(config: AppConfig) -> str:
     )
 
 
+def run_voice(runtime: Runtime) -> int:
+    spoken = listen_for_task()
+    if not spoken:
+        return 1
+    print(tr("Heard: {text}", text=spoken))
+    return run_once(runtime, spoken)
+
+
+def speak_task(runtime: Runtime) -> str:
+    spoken = listen_for_task()
+    if not spoken:
+        return "ok"
+    print(tr("Heard: {text}", text=spoken))
+    return run_line(runtime, spoken)
+
+
+def listen_for_task() -> str:
+    print(t("Listening. Speak the task."))
+    try:
+        return capture_speech()
+    except AgentXError as exc:
+        _report(exc)
+        return ""
+
+
 def run_once(runtime: Runtime, text: str) -> int:
     outcome = run_line(runtime, text)
     return 1 if outcome == "error" else 0
@@ -847,6 +885,12 @@ def interpret(line: str, session: Session, config: AppConfig) -> tuple[str, str,
         return ("menu", "", False)
     if text == "/scripts":
         return ("reply", _script_list(config), False)
+    if text == "/memory":
+        return ("reply", _memory_list(config), False)
+    if text == "/forget":
+        return ("reply", t("Use /forget followed by the fact name."), False)
+    if text.startswith("/forget "):
+        return ("reply", _forget_fact(config, text[len("/forget ") :].strip()), False)
     if text == "/model":
         return ("reply", describe_session(session, config), False)
     if text.startswith("/model "):
@@ -1103,6 +1147,9 @@ def _install_remote(
         _report(exc)
         return 1
     print(t(offer.report()))
+    if is_blocked(offer.findings()):
+        print(t("This script was blocked."), file=sys.stderr)
+        return 1
     if not _accept_install(yes):
         print(t("Script not installed."), file=sys.stderr)
         return 1
@@ -1125,6 +1172,22 @@ def _accept_install(yes: bool) -> bool:
     except EOFError:
         return False
     return answer.strip().casefold() in {"y", "yes", "s", "sim"}
+
+
+def _memory_list(config: AppConfig) -> str:
+    facts = load_facts(config)
+    if not facts:
+        return t("No facts are remembered yet.")
+    return t(format_facts(facts))
+
+
+def _forget_fact(config: AppConfig, key: str) -> str:
+    cleaned = key.strip()
+    if not cleaned:
+        return t("Use /forget followed by the fact name.")
+    if drop_fact(config, cleaned):
+        return tr("Forgot {key}.", key=cleaned.casefold())
+    return tr("No memory named {key}.", key=cleaned.casefold())
 
 
 def _script_list(config: AppConfig) -> str:

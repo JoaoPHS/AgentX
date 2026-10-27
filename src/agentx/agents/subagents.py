@@ -6,7 +6,7 @@ from agentx.config import FetchSettings, LimitSettings, answer_instruction
 from agentx.errors import AgentXError
 from agentx.i18n import t
 from agentx.llm.router import token_budget
-from agentx.tools.fetch import Page
+from agentx.tools.fetch import Page, download_reader
 from agentx.tools.render import (
     BROWSER_EXTRA_MISSING,
     BROWSER_RENDER_EMPTY,
@@ -86,11 +86,12 @@ def summarize_url(
     timeout: float,
     on_token=None,
     renderer=None,
+    reader=None,
     language: str = "en",
 ) -> str:
     page: Page = fetch(url)
     if page.script_shell:
-        rendered = _render_script_page(page, renderer)
+        rendered = _render_script_page(page, renderer, reader=reader)
         if isinstance(rendered, str):
             return rendered
         page = rendered
@@ -134,26 +135,44 @@ def summarize_url(
     return body + note
 
 
-def _render_script_page(page: Page, renderer):
+def _render_script_page(page: Page, renderer, reader=None):
     """Render a script shell, or return a note instead of a fake summary."""
     settings = FetchSettings(
         max_bytes=page.max_bytes,
         timeout_seconds=page.timeout_seconds,
         max_redirects=page.max_redirects,
     )
+    rendered = None
     try:
         rendered = render_page(page.url, settings=settings, renderer=renderer)
     except AgentXError as exc:
         raw = exc.args[0] if exc.args else ""
-        if raw == BROWSER_RENDER_FAILED:
-            return _script_notice(page.text, t(BROWSER_RENDER_FAILED))
-        raise
+        if raw != BROWSER_RENDER_FAILED:
+            raise
+        markdown = _read_markdown(page, reader, settings)
+        if markdown is not None:
+            return markdown
+        return _script_notice(page.text, t(BROWSER_RENDER_FAILED))
+    if isinstance(rendered, Page) and rendered.text.strip() and not rendered.script_shell:
+        return rendered
+    markdown = _read_markdown(page, reader, settings)
+    if markdown is not None:
+        return markdown
     if rendered is None:
         return _script_notice(page.text, t(BROWSER_EXTRA_MISSING))
-    if not rendered.text.strip() or rendered.script_shell:
-        visible = rendered.text if rendered.text.strip() else page.text
-        return _script_notice(visible, t(BROWSER_RENDER_EMPTY))
-    return rendered
+    visible = rendered.text if rendered.text.strip() else page.text
+    return _script_notice(visible, t(BROWSER_RENDER_EMPTY))
+
+
+def _read_markdown(page: Page, reader, settings: FetchSettings) -> Page | None:
+    fetch_reader = download_reader if reader is None else reader
+    try:
+        found = fetch_reader(page.url, settings=settings)
+    except AgentXError:
+        return None
+    if not isinstance(found, Page) or not found.text.strip():
+        return None
+    return found
 
 
 def _script_notice(text: str, reason: str) -> str:

@@ -5,7 +5,7 @@ from agentx.config import init_config, load_config
 from agentx.i18n import set_language
 
 
-def test_yes_keeps_llama_and_shows_the_other_terminal(tmp_path, capsys):
+def test_yes_keeps_llama_and_starts_it_in_the_background(tmp_path, capsys):
     path = tmp_path / "config.toml"
     init_config(path)
     text = path.read_text(encoding="utf-8")
@@ -15,9 +15,9 @@ def test_yes_keeps_llama_and_shows_the_other_terminal(tmp_path, capsys):
     config = load_config(path)
     assert choose_local_engine(config, answer="sim") == "llama"
     out = capsys.readouterr().out
-    assert "Open another terminal and start llama-server there." in out
-    assert "llama-server -m /data/models/qwen.gguf --host 127.0.0.1 --port 8080" in out
-    assert "Keep using AgentX in this terminal." in out
+    assert "AgentX starts llama-server in the background when a task needs it." in out
+    assert "It stops that process when AgentX exits, or after it sits idle." in out
+    assert "Open another terminal and start llama-server there." not in out
     assert 'provider = "llama"' in path.read_text(encoding="utf-8")
     assert load_config(path).local.provider == "llama"
 
@@ -53,15 +53,15 @@ def test_an_existing_ollama_name_stays(tmp_path, capsys):
     assert "custom:latest" in capsys.readouterr().out
 
 
-def test_portuguese_explains_the_other_terminal(tmp_path, capsys):
+def test_portuguese_explains_background_llama(tmp_path, capsys):
     path = tmp_path / "config.toml"
     init_config(path)
     config = load_config(path)
     set_language("pt-BR")
     assert choose_local_engine(config, answer="s") == "llama"
     out = capsys.readouterr().out
-    assert "Abra outro terminal e inicie o llama-server nele." in out
-    assert "llama-server -m MODEL.gguf --host 127.0.0.1 --port 18080" in out
+    assert "O AgentX inicia o llama-server em segundo plano" in out
+    assert "encerra esse processo" in out
 
 
 def test_other_commands_do_not_ask(tmp_path, monkeypatch):

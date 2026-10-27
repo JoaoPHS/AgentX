@@ -3,7 +3,7 @@ import threading
 
 from agentx.automation.catalog import load_catalog
 from agentx.config import AppConfig, init_config, load_config
-from agentx.context import MAX_FILES, MAX_TOTAL_CHARS, folder_context_for
+from agentx.context import MAX_FILES, MAX_TOTAL_CHARS, bm25_scores, folder_context_for
 from agentx.llm.router import Session
 from agentx.orchestrator import Orchestrator, build_plan
 
@@ -87,6 +87,26 @@ def test_no_folder_match_adds_no_context(tmp_path):
     assert folder_context_for("hello there", config, cwd=tmp_path) == ""
 
 
+def test_bm25_picks_the_file_with_the_query_terms(tmp_path):
+    (tmp_path / "invoice.txt").write_text(
+        "quarterly invoice total overdue 1840\n", encoding="utf-8"
+    )
+    (tmp_path / "readme.txt").write_text("welcome to the notes\n", encoding="utf-8")
+    config = _config(tmp_path)
+    block = folder_context_for("what is the invoice total", config, cwd=tmp_path)
+    assert "1840" in block
+    assert "welcome to the notes" not in block
+    scores = bm25_scores(
+        ["invoice", "total"],
+        [
+            ["quarterly", "invoice", "total", "overdue"],
+            ["welcome", "to", "the", "notes"],
+        ],
+    )
+    assert scores[0] > scores[1]
+    assert scores[1] == 0
+
+
 def test_analyze_words_do_not_run_the_script(tmp_path):
     scripts = _backup_tree(tmp_path)
     catalog = load_catalog(scripts)
@@ -144,6 +164,8 @@ def test_turn_context_is_injected_and_then_dropped(tmp_path, monkeypatch):
     assert "sub summarize_url" in system
     assert "sub run_script" in system
     assert "Answer in English." in system
+    assert system.count("- ") <= 8
+    assert "backup" in system
     blob = "\n".join(message["content"] for _role, messages in router.seen for message in messages)
     assert "BACKUP_MARKER" not in path.read_text(encoding="utf-8")
     assert "BACKUP_MARKER" in blob

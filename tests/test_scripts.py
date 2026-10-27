@@ -8,6 +8,8 @@ from agentx.automation.catalog import (
     choose_script,
     install_examples,
     load_catalog,
+    select_scripts,
+    select_tools,
 )
 from agentx.automation.runner import run_script, script_path_is_inside
 from agentx.errors import AgentXError
@@ -46,6 +48,34 @@ def _plan(message, scripts, *, analyze=None, local_ready=True):
         remote_ready=False,
         analyze=analyze or explode,
         scripts=scripts,
+    )
+
+
+def test_select_scripts_keeps_only_the_relevant_few(tmp_path):
+    from agentx.automation.catalog import ScriptInfo
+    from pathlib import Path
+
+    crowd = [
+        ScriptInfo(
+            f"tool{index:02d}",
+            Path(f"tool{index:02d}.py"),
+            f"Count files in folder {index}",
+            (f"tool{index:02d}", "count"),
+            (),
+        )
+        for index in range(20)
+    ]
+    crowd.append(
+        ScriptInfo("email", Path("email.py"), "Send a short email", ("email", "mail"), ())
+    )
+    crowd.append(
+        ScriptInfo("battery", Path("battery.py"), "Read the phone battery", ("battery",), ())
+    )
+    picked = select_scripts("email me the summary of the page", crowd)
+    assert [script.id for script in picked] == ["email"]
+    assert len(select_scripts("hello there", crowd)) <= 5
+    assert select_tools("check the battery level", ["get_battery", "get_wifi_info", "list_sensors"]) == (
+        "get_battery",
     )
 
 

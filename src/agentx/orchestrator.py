@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 import unicodedata
@@ -16,6 +17,8 @@ from agentx.automation.catalog import (
     save_new_script,
     scripts_dir,
     scripts_for_config,
+    select_scripts,
+    select_tools,
 )
 from agentx.automation.runner import run_script
 from agentx.config import answer_instruction
@@ -23,6 +26,15 @@ from agentx.context import attach_folder_context, folder_context_for
 from agentx.errors import AgentXError
 from agentx.i18n import t, tr
 from agentx.mcp.client import McpSession
+from agentx.memory import (
+    attach_memory,
+    drop_fact,
+    forget_command,
+    format_facts,
+    load_facts,
+    remember_command,
+    save_fact,
+)
 from agentx.tools.fetch import download
 
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
@@ -70,7 +82,9 @@ ANALYSIS_SYSTEM = (
     "sub run_script ID when an installed script does that part. "
     "Use only an id from the installed list. Do not invent an id. "
     "main short instruction at the end, at most one, only for what the routines cannot do. "
-    "Routines first."
+    "Routines first. "
+    "A later step receives the previous step output. "
+    "A JSON list of the same steps is also accepted."
 )
 
 _PLANNING = ("search", "compare", "plan", "code", "analyze", "analyse", "analise", "implement")
@@ -110,18 +124,35 @@ class Orchestrator:
         scope = self.session.scope_name(self.config)
         local_ready = self.router.workers_ready()
         remote_ready = self.router.remote.block_reason() is None
+        remembered = remember_command(message)
+        if remembered is not None:
+            save_fact(self.config, remembered)
+            return tr("Remembered {key}.", key=remembered.key)
+        forgotten = forget_command(message)
+        if forgotten is not None:
+            if drop_fact(self.config, forgotten):
+                return tr("Forgot {key}.", key=forgotten)
+            return tr("No memory named {key}.", key=forgotten)
         installed = scripts_for_config(self.config)
         language = self.config.language
         turn_context = folder_context_for(message, self.config, scripts=installed)
+        facts = format_facts(load_facts(self.config))
         mcp_tools = self.config.mcp.tools if self.config.mcp.enabled else ()
-        analysis = _analysis_prompt(installed, language, mcp_tools)
+        visible_scripts = select_scripts(message, installed)
+        visible_tools = select_tools(message, mcp_tools)
+        analysis = _analysis_prompt(visible_scripts, language, visible_tools)
 
         def analyze(text: str) -> str:
             return self.router.complete(
                 "orchestrator",
                 [
                     {"role": "system", "content": analysis},
-                    {"role": "user", "content": attach_folder_context(text, turn_context)},
+                    {
+                        "role": "user",
+                        "content": attach_memory(
+                            attach_folder_context(text, turn_context), facts
+                        ),
+                    },
                 ],
                 max_tokens=self.config.orchestrator.max_tokens,
                 temperature=0,
@@ -184,7 +215,7 @@ class Orchestrator:
         def run_engineer(brief: str, prior: str, token) -> str:
             release_device()
             return run_main(
-                brief,
+                attach_memory(brief, facts),
                 router=self.router,
                 fetch=fetch,
                 limits=self.config.limits,
@@ -193,7 +224,7 @@ class Orchestrator:
                 history=shared_history,
                 on_token=token,
                 run_script=launch_script,
-                scripts=installed,
+                scripts=visible_scripts,
                 language=language,
                 context=turn_context,
             )
@@ -306,6 +337,9 @@ def direct_plan(message: str, scripts=(), mcp_tools=()) -> list[Step] | None:
         return [created]
     if _LIST_SCRIPTS.search(fold(message).strip()):
         return [Step("list_scripts", brief=_list_text(scripts))]
+    chained = _chained_url_and_script(message, scripts)
+    if chained is not None:
+        return chained
     summary = summary_target(message)
     if summary:
         return [Step("summarize_url", brief=summary, url=summary)]
@@ -365,6 +399,9 @@ def _after_rules(
 def fallback_plan(message: str, *, max_delegations: int = 3, scripts=()) -> list[Step]:
     folded = fold(message)
     text = message.strip()
+    chained = _chained_url_and_script(message, scripts)
+    if chained is not None:
+        return chained[:max_delegations]
     scripted = _script_step(message, scripts)
     if scripted is not None:
         return [scripted]
@@ -381,6 +418,11 @@ def fallback_plan(message: str, *, max_delegations: int = 3, scripts=()) -> list
 def parse_delegation(
     text: str, *, max_delegations: int = 3, mcp_tools=(), scripts=()
 ) -> list[Step] | None:
+    json_steps = _parse_json_plan(
+        text, max_delegations=max_delegations, mcp_tools=mcp_tools, scripts=scripts
+    )
+    if json_steps is not None:
+        return json_steps
     lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
     if not lines or len(lines) > max_delegations:
         return None
@@ -414,6 +456,59 @@ def parse_delegation(
         if line == "main" or line.startswith("main "):
             brief = line[len("main") :].strip()
             steps.append(Step("main", brief=brief))
+            continue
+        return None
+    if any(step.kind == "quick_answer" for step in steps) and len(steps) != 1:
+        return None
+    main_steps = [index for index, step in enumerate(steps) if step.kind == "main"]
+    if len(main_steps) > 1 or (main_steps and main_steps[0] != len(steps) - 1):
+        return None
+    return steps
+
+
+def _parse_json_plan(
+    text: str, *, max_delegations: int, mcp_tools, scripts
+) -> list[Step] | None:
+    stripped = text.strip()
+    if not stripped.startswith("["):
+        return None
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, list) or not payload or len(payload) > max_delegations:
+        return None
+    steps: list[Step] = []
+    known = {script.id for script in scripts}
+    for item in payload:
+        if not isinstance(item, dict):
+            return None
+        action = str(item.get("action") or "").strip()
+        if action == "summarize_url":
+            url = _clean_url(str(item.get("arg") or item.get("url") or ""))
+            if not url.startswith(("http://", "https://")):
+                return None
+            steps.append(Step("summarize_url", brief=url, url=url))
+            continue
+        if action == "quick_answer":
+            steps.append(Step("quick_answer", brief=str(item.get("arg") or "").strip()))
+            continue
+        if action == "run_script":
+            script_id = str(item.get("script") or item.get("arg") or "").strip().casefold()
+            if not is_script_id(script_id):
+                return None
+            if known and script_id not in known:
+                return None
+            steps.append(Step("run_script", script=script_id))
+            continue
+        if action == "mcp":
+            tool = str(item.get("tool") or item.get("arg") or "").strip()
+            if tool not in mcp_tools:
+                return None
+            steps.append(Step("mcp", tool=tool))
+            continue
+        if action == "main":
+            steps.append(Step("main", brief=str(item.get("arg") or item.get("brief") or "").strip()))
             continue
         return None
     if any(step.kind == "quick_answer" for step in steps) and len(steps) != 1:
@@ -479,7 +574,7 @@ def execute_plan(
             if run_script is None:
                 result = t(f"Unknown script: {step.script}.")
             else:
-                result = run_script(step.script, step.brief or message.strip())
+                result = run_script(step.script, _step_input(step, message, collected))
             collected.append(result)
         elif step.kind == "save_script":
             if not last and status:
@@ -553,6 +648,29 @@ def _bare_url(message: str) -> str | None:
 
 def _clean_url(url: str) -> str:
     return url.rstrip(".,);]>'\"")
+
+
+def _chained_url_and_script(message: str, scripts) -> list[Step] | None:
+    if not _SPLIT.search(fold(message)):
+        return None
+    urls = extract_urls(message)
+    if len(urls) != 1:
+        return None
+    scripted = _script_step(message, scripts)
+    if scripted is None or scripted.kind != "run_script":
+        return None
+    return [
+        Step("summarize_url", brief=urls[0], url=urls[0]),
+        Step("run_script", script=scripted.script),
+    ]
+
+
+def _step_input(step: Step, message: str, collected: list[str]) -> str:
+    if collected:
+        prior = collected[-1].strip()
+        if prior:
+            return prior
+    return step.brief or message.strip()
 
 
 def _named_script(message: str, scripts) -> Step | None:

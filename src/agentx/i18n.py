@@ -11,7 +11,71 @@ _PT: dict[str, str] = {
     "Guide": "Guia",
     "Pick where to go": "Escolha para onde ir",
     "Pick the local model": "Escolha o modelo local",
-    "llama-server in another terminal": "llama-server em outro terminal",
+    "llama-server, started by AgentX": "llama-server, iniciado pelo AgentX",
+    "Speak a task": "Falar uma tarefa",
+    "Listening. Speak the task.": "Ouvindo. Fale a tarefa.",
+    "Heard: {text}": "Ouvi: {text}",
+    "This script was blocked.": "Este script foi bloqueado.",
+    "Remembered facts:": "Fatos lembrados:",
+    "No facts are remembered yet.": "Nenhum fato foi lembrado ainda.",
+    "Remembered {key}.": "Lembrei de {key}.",
+    "Forgot {key}.": "Esqueci {key}.",
+    "No memory named {key}.": "Nenhuma memória chamada {key}.",
+    "Use /forget followed by the fact name.": "Use /forget seguido do nome do fato.",
+    "Say what to remember, such as: remember that my server is home.": (
+        "Diga o que lembrar, por exemplo: lembre que meu servidor é casa."
+    ),
+    "That memory is too long.": "Essa memória é longa demais.",
+    "Secrets are not stored in memory.": "Segredos não são guardados na memória.",
+    "Memory is full. Forget one fact first.": "A memória está cheia. Esqueça um fato primeiro.",
+    "Safety check:": "Checagem de segurança:",
+    "termux-speech-to-text is not on PATH. Install Termux:API and allow the microphone when Android asks.": (
+        "termux-speech-to-text não está no PATH. Instale o Termux:API e permita o microfone quando o Android pedir."
+    ),
+    "Speech capture timed out. Install Termux:API and allow the microphone when Android asks.": (
+        "A captura de voz expirou. Instale o Termux:API e permita o microfone quando o Android pedir."
+    ),
+    "No speech was recognized.": "Nenhuma fala foi reconhecida.",
+    "Speech capture failed. Allow the microphone when Android asks.": (
+        "A captura de voz falhou. Permita o microfone quando o Android pedir."
+    ),
+    "The Markdown reader did not return usable text.": (
+        "O leitor de Markdown não devolveu texto útil."
+    ),
+    "The script reads or writes ~/.config/agentx or config.toml.": (
+        "O script lê ou grava ~/.config/agentx ou config.toml."
+    ),
+    "The script walks outside its folder with ..": (
+        "O script sai da pasta dele com .."
+    ),
+    "The script can start other processes.": "O script pode iniciar outros processos.",
+    "The script runs a shell command.": "O script executa um comando de shell.",
+    "The script reads the home directory.": "O script lê o diretório home.",
+    "The script writes a file outside the usual script folder.": (
+        "O script grava um arquivo fora da pasta usual de scripts."
+    ),
+    "The script reads environment variables.": "O script lê variáveis de ambiente.",
+    "The script loads native code.": "O script carrega código nativo.",
+    "BLOCK: The script reads or writes ~/.config/agentx or config.toml.": (
+        "BLOQUEIO: O script lê ou grava ~/.config/agentx ou config.toml."
+    ),
+    "BLOCK: The script is not valid Python.": "BLOQUEIO: O script não é Python válido.",
+    "BLOCK: The script loads native code.": "BLOQUEIO: O script carrega código nativo.",
+    "BLOCK: The script runs a shell command.": "BLOQUEIO: O script executa um comando de shell.",
+    "WARN: The script can start other processes.": "AVISO: O script pode iniciar outros processos.",
+    "WARN: The script reads the home directory.": "AVISO: O script lê o diretório home.",
+    "WARN: The script reads environment variables.": (
+        "AVISO: O script lê variáveis de ambiente."
+    ),
+    "WARN: The script walks outside its folder with ..": (
+        "AVISO: O script sai da pasta dele com .."
+    ),
+    "WARN: The script writes a file outside the usual script folder.": (
+        "AVISO: O script grava um arquivo fora da pasta usual de scripts."
+    ),
+    "Chat  ·  /menu returns  ·  /voice speaks  ·  /exit quits": (
+        "Conversa  ·  /menu volta  ·  /voice fala  ·  /exit sai"
+    ),
     "Ollama on this machine": "Ollama nesta máquina",
     "The menu is next.": "O menu vem em seguida.",
     "Chat": "Conversa",
@@ -124,8 +188,11 @@ _PT: dict[str, str] = {
     "Use llama-server? No saves Ollama in the config. [y/N] ": (
         "Usar o llama-server? Não grava o Ollama na config. [s/N] "
     ),
-    "Open another terminal and start llama-server there. Leave that terminal open.": (
-        "Abra outro terminal e inicie o llama-server nele. Deixe esse terminal aberto."
+    "AgentX starts llama-server in the background when a task needs it.": (
+        "O AgentX inicia o llama-server em segundo plano quando uma tarefa precisa dele."
+    ),
+    "It stops that process when AgentX exits, or after it sits idle.": (
+        "Ele encerra esse processo quando o AgentX sai, ou depois que fica ocioso."
     ),
     "Keep using AgentX in this terminal.": "Continue usando o AgentX neste terminal.",
     "Ollama is the local engine now.": "O Ollama passa a ser o motor local.",
@@ -456,6 +523,13 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^(.+) API key: OK$"), "chave de API {0}: OK"),
     (re.compile(r"^(.+) API key: FAIL \(missing\)$"), "chave de API {0}: FALHA (ausente)"),
     (re.compile(r"^Source: (.+)$"), "Origem: {0}"),
+    (re.compile(r"^The script sends HTTP to (.+)\.$"), "O script envia HTTP para {0}."),
+    (re.compile(r"^The script imports (.+) and can send network requests\.$"), (
+        "O script importa {0} e pode enviar pedidos de rede."
+    )),
+    (re.compile(r"^The script calls (.+)\.$"), "O script chama {0}."),
+    (re.compile(r"^BLOCK: (.+)$"), "BLOQUEIO: {0}"),
+    (re.compile(r"^WARN: (.+)$"), "AVISO: {0}"),
 )
 
 

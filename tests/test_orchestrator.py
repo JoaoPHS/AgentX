@@ -114,6 +114,63 @@ def test_code_and_planning_without_a_page_stay_with_the_main():
     assert [step.kind for step in offline] == ["main"]
 
 
+def test_json_plan_is_accepted_and_unknown_actions_are_not():
+    from agentx.automation.catalog import ScriptInfo
+    from pathlib import Path
+
+    email = ScriptInfo("email", Path("email.py"), "Send mail", ("email",), ())
+    steps = parse_delegation(
+        '[{"action":"summarize_url","arg":"https://example.com/a"},'
+        '{"action":"run_script","script":"email"}]',
+        scripts=(email,),
+    )
+    assert steps is not None
+    assert [step.kind for step in steps] == ["summarize_url", "run_script"]
+    assert steps[1].script == "email"
+    assert parse_delegation('[{"action":"explode","arg":"no"}]', scripts=(email,)) is None
+
+
+def test_url_then_script_passes_the_summary_to_the_script():
+    from agentx.automation.catalog import ScriptInfo
+    from pathlib import Path
+
+    email = ScriptInfo("email", Path("email.py"), "Send mail", ("email", "mail"), ())
+    steps, called = build_plan(
+        "summarize https://example.com/a and email me the summary",
+        force_main=False,
+        scope="local",
+        local_ready=False,
+        remote_ready=False,
+        analyze=lambda _text: (_ for _ in ()).throw(AssertionError("analysis should not run")),
+        scripts=(email,),
+    )
+    assert called is False
+    assert [step.kind for step in steps] == ["summarize_url", "run_script"]
+    seen = {}
+
+    def summarize(_url, _token):
+        return "PAGE SUMMARY"
+
+    def launch(script_id, task):
+        seen["script"] = script_id
+        seen["task"] = task
+        return "sent"
+
+    result = execute_plan(
+        steps,
+        "summarize https://example.com/a and email me the summary",
+        scope="local",
+        worker_ready=True,
+        blocked_reason=None,
+        summarize=summarize,
+        quick=lambda *_args: "no",
+        main=lambda *_args: "no",
+        run_script=launch,
+    )
+    assert result == "sent"
+    assert seen == {"script": "email", "task": "PAGE SUMMARY"}
+
+
 def test_quick_answer_is_not_chained_and_bad_analysis_is_rejected():
     assert parse_delegation("sub quick_answer define API\nmain do the rest") is None
     assert parse_delegation("this is just prose\nmain does the work") is None

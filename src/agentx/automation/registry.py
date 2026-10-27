@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from agentx.automation.catalog import install_text
+from agentx.automation.lint import format_findings, is_blocked, lint_script
 from agentx.errors import AgentXError
 from agentx.tools.fetch import check_url, default_resolve
 
@@ -44,8 +45,15 @@ class ScriptOffer:
     def digest(self) -> str:
         return hashlib.sha256(self.text.encode("utf-8")).hexdigest()
 
+    def findings(self):
+        return lint_script(self.text)
+
     def report(self) -> str:
-        return f"Source: {self.source}\nSHA-256: {self.digest}\n{_UNSAFE}"
+        lines = [f"Source: {self.source}", f"SHA-256: {self.digest}", _UNSAFE]
+        extra = format_findings(self.findings())
+        if extra:
+            lines.append(extra)
+        return "\n".join(lines)
 
 
 def install_named(
@@ -164,7 +172,8 @@ def stage_gist(
 
 
 def _commit(directory: Path, offer: ScriptOffer, confirm: bool) -> Path:
-    if not confirm:
+    findings = offer.findings()
+    if is_blocked(findings) or not confirm:
         raise AgentXError(f"{offer.report()}\nScript not installed.")
     return install_text(directory, offer.filename, offer.text)
 

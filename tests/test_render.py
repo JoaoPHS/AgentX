@@ -6,6 +6,8 @@ from agentx.agents.subagents import summarize_url
 from agentx.config import FetchSettings, LimitSettings
 from agentx.errors import AgentXError
 from agentx.tools.fetch import Page, check_url
+
+READER_DOWN = "The Markdown reader did not return usable text."
 from agentx.tools.render import (
     BROWSER_EXTRA_MISSING,
     BROWSER_RENDER_EMPTY,
@@ -56,7 +58,12 @@ def _shell_page(**overrides) -> Page:
     return Page(**fields)
 
 
+def _offline_reader(_url, **_kwargs):
+    raise AgentXError(READER_DOWN)
+
+
 def _summarize(page: Page, **kwargs) -> str:
+    kwargs.setdefault("reader", _offline_reader)
     return summarize_url(
         page.url,
         router=kwargs.pop("router", _Router()),
@@ -269,6 +276,20 @@ def test_summarize_shell_without_the_extra_is_not_a_summary(monkeypatch):
     assert router.calls == []
     assert text == f"Loading...\n\n{BROWSER_EXTRA_MISSING}"
     assert "short summary" not in text
+
+
+def test_summarize_shell_uses_reader_markdown():
+    router = _Router()
+
+    def fake_reader(url, **_kwargs):
+        return Page(url=url, text="The cloud fact is in Markdown.", truncated=False)
+
+    text = _summarize(_shell_page(), router=router, reader=fake_reader)
+    assert text == "short summary"
+    blob = "\n".join(message["content"] for message in router.calls[0])
+    assert "cloud fact" in blob
+    assert "Loading..." not in blob
+    assert BROWSER_EXTRA_MISSING not in text
 
 
 def test_summarize_shell_uses_rendered_text():
