@@ -1,4 +1,4 @@
-"""Write iniciar.sh with Unix line endings for Termux."""
+"""Write init.sh with Unix line endings for Termux."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import stat
 from pathlib import Path
 
 SHELL = "/data/data/com.termux/files/usr/bin/bash"
-STARTER_NAME = "iniciar.sh"
+STARTER_NAME = "init.sh"
 
 _STARTER = """\
 #!/data/data/com.termux/files/usr/bin/bash
@@ -28,7 +28,7 @@ fi
 
 echo "[*] Fixing Windows line endings if dos2unix is present..."
 if command -v dos2unix >/dev/null 2>&1; then
-  dos2unix "$ROOT/iniciar.sh" >/dev/null 2>&1 || true
+  dos2unix "$ROOT/init.sh" >/dev/null 2>&1 || true
 fi
 
 echo "[*] Asking Termux for storage access when that command is present..."
@@ -47,7 +47,7 @@ echo "[+] Done. Start AgentX with: agentx"
 
 
 def write_starter(directory: Path) -> Path:
-    """Store iniciar.sh with LF only. A Windows clone must not keep CRLF."""
+    """Store init.sh with LF only. A Windows clone must not keep CRLF."""
     destination = directory / STARTER_NAME
     destination.write_bytes(_STARTER.encode("ascii"))
     try:
@@ -58,7 +58,7 @@ def write_starter(directory: Path) -> Path:
 
 
 def place_starter(config_path: Path) -> Path:
-    """Put iniciar.sh next to the config so a later clone still has a local copy."""
+    """Put init.sh next to the config so a later clone still has a local copy."""
     return write_starter(config_path.parent)
 
 

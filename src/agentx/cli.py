@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
         starter = write_starter(Path.cwd())
         place_starter(path)
         print(tr("Termux starter written to {path}.", path=starter))
-        print(t("On Termux run: pkg install dos2unix -y && dos2unix iniciar.sh && chmod +x iniciar.sh && ./iniciar.sh"))
+        print(t("On Termux run: pkg install dos2unix -y && dos2unix init.sh && chmod +x init.sh && ./init.sh"))
         return prepare_local_model(path)
     if args and args[0] == "doctor":
         if args[1:]:

@@ -312,8 +312,8 @@ _PT: dict[str, str] = {
     ),
     "Config already exists at {path}.": "A config já existe em {path}.",
     "Termux starter written to {path}.": "Inicializador do Termux gravado em {path}.",
-    "On Termux run: pkg install dos2unix -y && dos2unix iniciar.sh && chmod +x iniciar.sh && ./iniciar.sh": (
-        "No Termux rode: pkg install dos2unix -y && dos2unix iniciar.sh && chmod +x iniciar.sh && ./iniciar.sh"
+    "On Termux run: pkg install dos2unix -y && dos2unix init.sh && chmod +x init.sh && ./init.sh": (
+        "No Termux rode: pkg install dos2unix -y && dos2unix init.sh && chmod +x init.sh && ./init.sh"
     ),
     "Config written to {path}": "Config gravada em {path}",
     "Saved {path}. Edit it, then run: agentx script run {name}": (

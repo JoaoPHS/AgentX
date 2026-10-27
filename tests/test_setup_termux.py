@@ -29,4 +29,4 @@ def test_init_writes_the_starter_next_to_the_config(tmp_path, monkeypatch, capsy
     assert beside.read_bytes() == local.read_bytes()
     assert b"\r" not in local.read_bytes()
     assert "Termux starter written" in out
-    assert "dos2unix iniciar.sh" in out
+    assert "dos2unix init.sh" in out

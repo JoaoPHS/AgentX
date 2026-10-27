@@ -16,7 +16,7 @@ fi
 
 echo "[*] Fixing Windows line endings if dos2unix is present..."
 if command -v dos2unix >/dev/null 2>&1; then
-  dos2unix "$ROOT/iniciar.sh" >/dev/null 2>&1 || true
+  dos2unix "$ROOT/init.sh" >/dev/null 2>&1 || true
 fi
 
 echo "[*] Asking Termux for storage access when that command is present..."
