@@ -103,9 +103,17 @@ Install Termux from F-Droid. The Play Store build is out of date.
 
 ```bash
 pkg update && pkg upgrade -y
-pkg install -y python llama-cpp
-pip install .
+pkg install -y python git dos2unix
+git clone https://github.com/JoaoPHS/AgentX
+cd AgentX
+dos2unix iniciar.sh
+chmod +x iniciar.sh
+./iniciar.sh
 ```
+
+`iniciar.sh` uses Unix line endings and the Termux bash path. A Windows clone can still arrive with CRLF, so `dos2unix` is the step that avoids `bad interpreter: No such file or directory`. The starter asks Termux for storage access when that command exists, installs this folder so `agentx` is this clone, then runs `python -m agentx init`. After that, start the app with `agentx`.
+
+If a script later needs the phone storage or the network, run `termux-setup-storage` once.
 
 Python 3.11 or newer. The only required dependency is `httpx`. There is no LangChain and no PyTorch. Script-rendered pages can use the optional `browser` extra. That extra is not part of the base install.
 

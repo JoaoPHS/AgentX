@@ -173,8 +173,13 @@ def main(argv: list[str] | None = None) -> int:
             print(tr("Config already exists at {path}.", path=path))
         else:
             print(tr("Config written to {path}", path=path))
+        from agentx.setup_termux import place_starter, write_starter
         from agentx.setup_local import prepare_local_model
 
+        starter = write_starter(Path.cwd())
+        place_starter(path)
+        print(tr("Termux starter written to {path}.", path=starter))
+        print(t("On Termux run: pkg install dos2unix -y && dos2unix iniciar.sh && chmod +x iniciar.sh && ./iniciar.sh"))
         return prepare_local_model(path)
     if args and args[0] == "doctor":
         if args[1:]:

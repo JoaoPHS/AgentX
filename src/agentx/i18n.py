@@ -311,6 +311,10 @@ _PT: dict[str, str] = {
         "Use agentx key openrouter, agentx key anthropic ou agentx key openai, seguido da chave."
     ),
     "Config already exists at {path}.": "A config já existe em {path}.",
+    "Termux starter written to {path}.": "Inicializador do Termux gravado em {path}.",
+    "On Termux run: pkg install dos2unix -y && dos2unix iniciar.sh && chmod +x iniciar.sh && ./iniciar.sh": (
+        "No Termux rode: pkg install dos2unix -y && dos2unix iniciar.sh && chmod +x iniciar.sh && ./iniciar.sh"
+    ),
     "Config written to {path}": "Config gravada em {path}",
     "Saved {path}. Edit it, then run: agentx script run {name}": (
         "Salvo em {path}. Edite o arquivo e rode: agentx script run {name}"
