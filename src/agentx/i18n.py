@@ -34,6 +34,24 @@ _PT: dict[str, str] = {
     "DroidMCP setup scripts are ready: download droidmcp, configure droidmcp, droidmcp status.": (
         "Os scripts de preparacao do DroidMCP estao prontos: download droidmcp, configure droidmcp, droidmcp status."
     ),
+    "Setup scripts: termux_setup, download_droidmcp, configure_droidmcp, check_droidmcp.": (
+        "Scripts de preparacao: termux_setup, download_droidmcp, configure_droidmcp, check_droidmcp."
+    ),
+    "1. termux_setup": "1. termux_setup",
+    "2. included_scripts": "2. included_scripts",
+    "3. local_model": "3. local_model",
+    "4. droidmcp": "4. droidmcp",
+    "Installing dos2unix.": "Instalando o dos2unix.",
+    "Installing dos2unix and Termux:API.": "Instalando o dos2unix e o Termux:API.",
+    "Install the Termux:API app from F-Droid if Android asks for it.": (
+        "Instale o app Termux:API pelo F-Droid se o Android pedir."
+    ),
+    "Updating the clone.": "Atualizando o clone.",
+    "Fixing init.sh line endings.": "Corrigindo as quebras de linha do init.sh.",
+    "Making init.sh executable.": "Tornando o init.sh executavel.",
+    "Installing this AgentX folder.": "Instalando esta pasta do AgentX.",
+    "Asking Termux for storage access.": "Pedindo acesso ao armazenamento do Termux.",
+    "termux_setup finished.": "termux_setup concluido.",
     "The script finished.": "O script terminou.",
     "Set up DroidMCP sensors? Location, shell, SMS, contacts, and GitHub stay off. [y/N] ": (
         "Configurar os sensores do DroidMCP? Localizacao, shell, SMS, contatos e GitHub ficam desligados. [s/N] "
@@ -54,12 +72,33 @@ _PT: dict[str, str] = {
     "Location, shell, SMS, contacts, and GitHub stay off.": (
         "Localizacao, shell, SMS, contatos e GitHub continuam desligados."
     ),
+    "Status": "Status",
+    "Download and set up": "Baixar e configurar",
+    "Battery": "Bateria",
+    "Wi-Fi": "Wi-Fi",
+    "Brightness": "Brilho",
+    "Volume": "Volume",
+    "Sensor list": "Lista de sensores",
+    "Sensors  ·  client {state}": "Sensores  ·  cliente {state}",
+    "Download the sensors server?": "Baixar o servidor de sensores?",
+    "Yes, download sensors": "Sim, baixar os sensores",
+    "No, keep it off": "Nao, manter desligado",
+    "DroidMCP sensors is ready.": "O DroidMCP de sensores esta pronto.",
+    "DroidMCP is off. Choose Download and set up.": (
+        "O DroidMCP esta desligado. Escolha Baixar e configurar."
+    ),
+    "Use Download and set up in this menu to turn the client on.": (
+        "Use Baixar e configurar neste menu para ligar o cliente."
+    ),
     "Install a community script": "Instalar um script da comunidade",
     "Back": "Voltar",
     "Phone scripts": "Scripts do telefone",
     "Saved scripts": "Scripts salvos",
     "Create a script": "Criar um script",
     "Run a saved script": "Executar um script salvo",
+    "Pick a script to run": "Escolha um script para executar",
+    "No script was chosen.": "Nenhum script foi escolhido.",
+    "↑↓ enter run    ←→ pages    q back": "↑↓ enter executar    ←→ páginas    q voltar",
     "Script name: ": "Nome do script: ",
     "What the script does: ": "O que o script faz: ",
     "Task for the script: ": "Tarefa para o script: ",
@@ -269,6 +308,10 @@ _PT: dict[str, str] = {
     ),
     "The script name is not allowed.": "O nome do script não é permitido.",
     "The script timed out.": "O script expirou.",
+    "No matching script. Pick one by name: run script NAME.": (
+        "Nenhum script combinou. Escolha um pelo nome: run script NOME."
+    ),
+    "Type /scripts to see the full list.": "Digite /scripts para ver a lista completa.",
     "The script could not be started.": "O script não pôde ser iniciado.",
     "The script failed.": "O script falhou.",
     "The script finished with no output.": "O script terminou sem saída.",
@@ -312,9 +355,6 @@ _PT: dict[str, str] = {
     ),
     "Config already exists at {path}.": "A config já existe em {path}.",
     "Termux starter written to {path}.": "Inicializador do Termux gravado em {path}.",
-    "On Termux run: pkg install dos2unix -y && dos2unix init.sh && chmod +x init.sh && ./init.sh": (
-        "No Termux rode: pkg install dos2unix -y && dos2unix init.sh && chmod +x init.sh && ./init.sh"
-    ),
     "Config written to {path}": "Config gravada em {path}",
     "Saved {path}. Edit it, then run: agentx script run {name}": (
         "Salvo em {path}. Edite o arquivo e rode: agentx script run {name}"

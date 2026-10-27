@@ -14,20 +14,20 @@ else
   PIP="$(command -v pip3 || command -v pip)"
 fi
 
-echo "[*] Fixing Windows line endings if dos2unix is present..."
+echo "[*] 1. termux_setup"
+if command -v pkg >/dev/null 2>&1; then
+  pkg install -y dos2unix termux-api
+fi
+if [ -d "$ROOT/.git" ] && command -v git >/dev/null 2>&1; then
+  git -C "$ROOT" pull
+fi
 if command -v dos2unix >/dev/null 2>&1; then
   dos2unix "$ROOT/init.sh" >/dev/null 2>&1 || true
 fi
-
-echo "[*] Asking Termux for storage access when that command is present..."
+chmod +x "$ROOT/init.sh"
 if command -v termux-setup-storage >/dev/null 2>&1; then
   termux-setup-storage || true
 fi
-
-echo "[*] Installing this AgentX folder so the agentx command is this clone..."
 "$PIP" install -e "$ROOT"
-
-echo "[*] Writing the config and running the setup questions..."
 "$PYTHON" -m agentx init
-
 echo "[+] Done. Start AgentX with: agentx"

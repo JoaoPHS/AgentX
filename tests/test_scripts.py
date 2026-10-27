@@ -151,6 +151,43 @@ def test_plain_phrases_run_the_matching_script_and_skip_the_model():
     assert declined[0].kind == "main"
 
 
+def test_an_unmatched_action_lists_scripts_instead_of_calling_the_model(tmp_path):
+    _write(tmp_path, "toast.py", TOAST)
+    _write(tmp_path, "notify.py", NOTIFY)
+    scripts = load_catalog(tmp_path)
+
+    def explode(_text):
+        raise AssertionError("an unmatched action must not call the model")
+
+    steps, called = _plan("mostra isso na tela", scripts, analyze=explode)
+    assert called is False
+    assert steps[0].kind == "pick_script"
+    assert "toast" in steps[0].brief
+    assert "run script NAME" in steps[0].brief
+    question, called = _plan("o que é um toast", scripts, analyze=explode)
+    assert called is False
+    assert question[0].kind == "quick_answer"
+    seen = {}
+
+    def pick():
+        seen["ran"] = True
+        return "Toast shown."
+
+    result = execute_plan(
+        [Step("pick_script", "names")],
+        "mostra isso na tela",
+        scope="local",
+        worker_ready=True,
+        blocked_reason=None,
+        summarize=lambda *_args: "no",
+        quick=lambda *_args: "no",
+        main=lambda *_args: "no",
+        pick=pick,
+    )
+    assert result == "Toast shown."
+    assert seen == {"ran": True}
+
+
 def test_a_named_script_runs_without_analysis(tmp_path):
     _write(tmp_path, "toast.py", TOAST)
     scripts = load_catalog(tmp_path)

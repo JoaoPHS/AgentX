@@ -58,14 +58,14 @@ GUIDES: tuple[tuple[str, str], ...] = (
     (
         "DroidMCP",
         "DroidMCP is a separate program. "
-        "The client is off until mcp.enabled is true. "
-        "On Termux, after the local model is installed, agentx init can ask before it downloads the sensors server. "
-        "That server may report battery, Wi-Fi, brightness, volume, and the sensor list. "
+        "The client is off until you download it from the DroidMCP menu. "
+        "On Termux, agentx init can ask after the local model. "
+        "The menu can report battery, Wi-Fi, brightness, volume, and the sensor list. "
         "Location, shell, SMS, contacts, and GitHub stay off. "
-        "Later, droidmcp status, download droidmcp, and configure droidmcp ask again before they change anything. "
+        "Download and set up fetches the pinned sensors binary and checks the checksum. "
         "Shell, exec, adb, and other command tools stay off. "
         "A normal chat does not start it. "
-        "It starts over stdio only when a task asks for an allowed tool. "
+        "It starts over stdio only when you pick an allowed tool. "
         "It stops before a model runs, and it stops when you return to the menu or quit. "
         "A missing binary does not stop the rest of the task. "
         "AgentX is not an MCP server.",
@@ -152,15 +152,15 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
     (
         "DroidMCP",
         "O DroidMCP é um programa separado. "
-        "O cliente fica desligado até mcp.enabled ser true. "
-        "No Termux, depois que o modelo local e instalado, o agentx init pode perguntar antes de baixar o servidor de sensores. "
-        "Esse servidor pode informar bateria, Wi-Fi, brilho, volume e a lista de sensores. "
+        "O cliente fica desligado ate voce baixar pelo menu DroidMCP. "
+        "No Termux, o agentx init pode perguntar depois do modelo local. "
+        "O menu pode informar bateria, Wi-Fi, brilho, volume e a lista de sensores. "
         "Localizacao, shell, SMS, contatos e GitHub ficam desligados. "
-        "Depois, droidmcp status, download droidmcp e configure droidmcp perguntam de novo antes de mudar algo. "
+        "Baixar e configurar busca o binario de sensores fixado e confere o checksum. "
         "Shell, exec, adb e outras ferramentas de comando ficam desligados. "
-        "Uma conversa normal não inicia o DroidMCP. "
-        "Ele sobe por stdio só quando uma tarefa pede uma ferramenta permitida. "
-        "Ele para antes de um modelo rodar, e para quando você volta ao menu ou sai. "
+        "Uma conversa normal nao inicia o DroidMCP. "
+        "Ele sobe por stdio so quando voce escolhe uma ferramenta permitida. "
+        "Ele para antes de um modelo rodar, e para quando voce volta ao menu ou sai. "
         "Um binário ausente não interrompe o resto da tarefa. O AgentX não é um servidor MCP.",
     ),
     (
@@ -251,7 +251,14 @@ def _stdout_tty() -> bool:
         return False
 
 
-def menu_lines(title: str, hint: str, choices: list[Choice], index: int) -> list[str]:
+def menu_lines(
+    title: str,
+    hint: str,
+    choices: list[Choice],
+    index: int,
+    *,
+    footer: str | None = None,
+) -> list[str]:
     width = _frame_width()
     inner = width - 2
     lines = [
@@ -266,14 +273,22 @@ def menu_lines(title: str, hint: str, choices: list[Choice], index: int) -> list
         lines.append(f"  {marker} {position + 1}. {choice.label}")
     from agentx.i18n import t
 
-    lines.extend(["", t("↑↓ or number    enter select    q back")])
+    lines.extend(["", footer or t("↑↓ or number    enter select    q back")])
     return lines
 
 
-def render_menu(title: str, hint: str, choices: list[Choice], index: int, *, color: bool) -> str:
+def render_menu(
+    title: str,
+    hint: str,
+    choices: list[Choice],
+    index: int,
+    *,
+    color: bool,
+    footer: str | None = None,
+) -> str:
     painted: list[str] = []
     choice_row = 0
-    for line in menu_lines(title, hint, choices, index):
+    for line in menu_lines(title, hint, choices, index, footer=footer):
         if line.startswith("  "):
             selected = choice_row == index
             choice_row += 1
@@ -294,7 +309,7 @@ def press_menu(index: int, count: int, key: str) -> MenuStep:
         return MenuStep(index, selected=index)
     if key in {"q", "esc", "backspace"}:
         return MenuStep(index, closed=True)
-    if len(key) == 1 and key.isdigit():
+    if key.isdigit():
         picked = int(key) - 1
         if 0 <= picked < count:
             return MenuStep(picked, selected=picked)
@@ -401,24 +416,44 @@ def choose(
     read_key_fn=read_key,
     write=None,
     color: bool = True,
+    page_size: int = 0,
 ) -> str | None:
     if not choices:
         return None
     output = write or (lambda text: print(text, end="", flush=True))
     index = 0
+    page = 0
+    paging = page_size > 0 and len(choices) > page_size
+    from agentx.i18n import t
+
     while True:
+        if paging:
+            pages = (len(choices) + page_size - 1) // page_size
+            page %= pages
+            start = page * page_size
+            visible = choices[start : start + page_size]
+            shown_hint = f"{hint}  {page + 1}/{pages}"
+            footer = t("↑↓ enter run    ←→ pages    q back")
+        else:
+            visible = choices
+            shown_hint = hint
+            footer = None
         if _stdout_tty():
             output("\033[2J\033[H")
-        output(render_menu(title, hint, choices, index, color=color))
+        output(render_menu(title, shown_hint, visible, index, color=color, footer=footer))
         try:
             key = read_key_fn()
         except (EOFError, KeyboardInterrupt, OSError):
-            key = _read_key_line(len(choices))
-        step = press_menu(index, len(choices), key)
+            key = _read_key_line(len(visible))
+        if paging and key in {"left", "right"}:
+            page = page - 1 if key == "left" else page + 1
+            index = 0
+            continue
+        step = press_menu(index, len(visible), key)
         if step.closed:
             return None
         if step.selected is not None:
-            return choices[step.selected].id
+            return visible[step.selected].id
         index = step.index
 
 

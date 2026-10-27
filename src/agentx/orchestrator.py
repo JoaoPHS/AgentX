@@ -74,6 +74,9 @@ ANALYSIS_SYSTEM = (
 )
 
 _PLANNING = ("search", "compare", "plan", "code", "analyze", "analyse", "analise", "implement")
+_ACTION = re.compile(
+    r"\b(show|check|checar|ver|run|manda|dispara|mostra|mostre|notify|toast|abrir|open)\b"
+)
 
 
 @dataclass(frozen=True)
@@ -101,6 +104,7 @@ class Orchestrator:
         on_token=None,
         status=None,
         device: McpSession | None = None,
+        pick=None,
     ) -> str:
         self._deadline = time.monotonic() + self.config.limits.request_timeout_seconds
         scope = self.session.scope_name(self.config)
@@ -236,6 +240,7 @@ class Orchestrator:
                 mcp=launch_mcp,
                 on_token=on_token,
                 status=status,
+                pick=pick,
             )
         finally:
             if owned:
@@ -264,7 +269,7 @@ def build_plan(
         return [Step("main", brief=message.strip())], False
     cautious = is_cautious(message)
     if not cautious:
-        direct = direct_plan(message, scripts)
+        direct = direct_plan(message, scripts, mcp_tools=mcp_tools)
         if direct is not None:
             return direct, False
     if can_analyze(scope, local_ready, remote_ready):
@@ -292,7 +297,7 @@ def can_analyze(scope: str, local_ready: bool, remote_ready: bool) -> bool:
     return local_ready
 
 
-def direct_plan(message: str, scripts=()) -> list[Step] | None:
+def direct_plan(message: str, scripts=(), mcp_tools=()) -> list[Step] | None:
     named = _named_script(message, scripts)
     if named is not None:
         return [named]
@@ -309,6 +314,8 @@ def direct_plan(message: str, scripts=()) -> list[Step] | None:
     scripted = _script_step(message, scripts)
     if scripted is not None:
         return [scripted]
+    if scripts and not mcp_tools and _looks_like_action(message):
+        return [Step("pick_script", brief=_pick_text(scripts))]
     return None
 
 
@@ -432,9 +439,11 @@ def execute_plan(
     mcp=None,
     on_token=None,
     status=None,
+    pick=None,
 ) -> str:
     needs_model = any(
-        step.kind not in {"run_script", "refuse", "mcp", "save_script", "list_scripts", "clarify"}
+        step.kind
+        not in {"run_script", "refuse", "mcp", "save_script", "list_scripts", "clarify", "pick_script"}
         for step in steps
     )
     if scope == "orchestrator" and not worker_ready and needs_model:
@@ -482,6 +491,12 @@ def execute_plan(
             collected.append(result)
         elif step.kind == "list_scripts":
             result = step.brief
+            collected.append(result)
+        elif step.kind == "pick_script":
+            if pick is not None:
+                result = pick()
+            else:
+                result = step.brief
             collected.append(result)
         elif step.kind == "clarify":
             result = tr(
@@ -567,6 +582,31 @@ def _list_text(scripts) -> str:
         return t("No scripts are saved yet. Create one with: agentx script new NAME.")
     lines = [t("Saved scripts:")]
     lines.extend(f"{script.id}: {script.description}" for script in scripts)
+    return "\n".join(lines)
+
+
+def _looks_like_action(message: str) -> bool:
+    """A short phone action should list scripts, not wait for a model."""
+    text = message.strip()
+    if not text or len(text) > 80 or text.endswith("?"):
+        return False
+    folded = fold(text)
+    if is_short_request(message) or _has_summary(folded) or _has_task(folded):
+        return False
+    return _ACTION.search(folded) is not None
+
+
+def _pick_text(scripts) -> str:
+    if not scripts:
+        return t("No scripts are saved yet. Create one with: agentx script new NAME.")
+    lines = [
+        t("No matching script. Pick one by name: run script NAME."),
+        "",
+    ]
+    for script in list(scripts)[:12]:
+        lines.append(f"{script.id}: {script.description}")
+    if len(scripts) > 12:
+        lines.append(t("Type /scripts to see the full list."))
     return "\n".join(lines)
 
 

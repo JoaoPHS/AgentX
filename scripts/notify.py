@@ -21,9 +21,23 @@ def main() -> int:
     if binary is None:
         _say("termux-notification is not installed.", "termux-notification não está instalado.")
         return 1
-    completed = subprocess.run([binary, "--content", text], check=False)
+    try:
+        completed = subprocess.run(
+            [binary, "--content", text],
+            check=False,
+            timeout=8,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        _say(
+            "termux-notification did not answer. Install Termux:API and allow it when Android asks.",
+            "O termux-notification nao respondeu. Instale o Termux:API e permita quando o Android pedir.",
+        )
+        return 1
     if completed.returncode != 0:
-        _say("The notification command failed.", "O comando da notificação falhou.")
+        detail = (completed.stderr or completed.stdout or "").strip()
+        print(detail or "The notification command failed.")
         return completed.returncode
     _say("Notification shown.", "Notificação mostrada.")
     return 0

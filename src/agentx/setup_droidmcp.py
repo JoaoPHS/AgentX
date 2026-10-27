@@ -199,9 +199,17 @@ def _save_mcp(config_path: Path, wrapper: Path) -> None:
 
 
 def write_startup_scripts(directory: Path) -> list[str]:
-    """Replace the three setup scripts so a later init does not keep a stale copy."""
+    """Replace the setup scripts so a later init does not keep a stale copy."""
     written: list[str] = []
     directory.mkdir(parents=True, exist_ok=True)
+    for old in (
+        "droidmcp_download",
+        "droidmcp_configure",
+        "droidmcp_status",
+    ):
+        stale = directory / f"{old}.py"
+        if stale.exists():
+            stale.unlink()
     for script_id, text in _helpers():
         destination = directory / f"{script_id}.py"
         if destination.exists():
@@ -219,24 +227,24 @@ def _install_helpers(config_path: Path) -> None:
 def _helpers() -> tuple[tuple[str, str], ...]:
     return (
         _helper(
-            "droidmcp_download",
+            "download_droidmcp",
             "Download the DroidMCP sensors server after a confirmation.",
-            "droidmcpdownload",
+            "downloaddroidmcp",
             "download droidmcp, baixar droidmcp",
             "script_download",
         ),
         _helper(
-            "droidmcp_configure",
+            "configure_droidmcp",
             "Configure the DroidMCP sensors server after a confirmation.",
-            "droidmcpconfigure",
+            "configuredroidmcp",
             "configure droidmcp, configurar droidmcp",
             "script_configure",
         ),
         _helper(
-            "droidmcp_status",
+            "check_droidmcp",
             "Show whether DroidMCP sensors is configured.",
-            "droidmcpstatus",
-            "droidmcp status, status do droidmcp",
+            "checkdroidmcp",
+            "droidmcp status, check droidmcp, status do droidmcp",
             "script_status",
         ),
     )

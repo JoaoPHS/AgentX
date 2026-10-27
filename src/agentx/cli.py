@@ -173,13 +173,10 @@ def main(argv: list[str] | None = None) -> int:
             print(tr("Config already exists at {path}.", path=path))
         else:
             print(tr("Config written to {path}", path=path))
-        from agentx.setup_termux import place_starter, write_starter
         from agentx.setup_local import prepare_local_model
+        from agentx.setup_termux import prepare_termux
 
-        starter = write_starter(Path.cwd())
-        place_starter(path)
-        print(tr("Termux starter written to {path}.", path=starter))
-        print(t("On Termux run: pkg install dos2unix -y && dos2unix init.sh && chmod +x init.sh && ./init.sh"))
+        prepare_termux(path)
         return prepare_local_model(path)
     if args and args[0] == "doctor":
         if args[1:]:
@@ -328,6 +325,7 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
         choices = [
             Choice("chat", t("Chat")),
             Choice("scripts", t("Scripts")),
+            Choice("droidmcp", "DroidMCP"),
             Choice("config", t("Configuration")),
             Choice("help", t("Help guide")),
             Choice("doctor", t("Check config")),
@@ -347,6 +345,9 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
                 return 0
         elif picked == "scripts":
             scripts_menu(runtime, read_key_fn=read_key_fn, write=write)
+        elif picked == "droidmcp":
+            if runtime is not None:
+                droidmcp_menu(runtime, read_key_fn=read_key_fn, write=write)
         elif picked == "config":
             config_menu(runtime, read_key_fn=read_key_fn, write=write)
         elif picked == "help":
@@ -373,6 +374,8 @@ def _pick_local_engine(runtime: Runtime, *, read_key_fn=None, write=None) -> Non
 
 
 def chat(runtime: Runtime) -> str:
+    if _isatty(sys.stdout):
+        print("\033[2J\033[H", end="")
     print(_tone_prompt(t("Chat  ·  /menu returns  ·  /exit quits")))
     try:
         while True:
@@ -420,11 +423,102 @@ def scripts_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
         elif picked == "new":
             _pause(_prompt_new_script(runtime.config), write=write, read_key_fn=read_key_fn)
         elif picked == "run":
-            _pause(_prompt_run_script(runtime.config), write=write, read_key_fn=read_key_fn)
+            _pause(
+                _run_picked_script(runtime.config, "", read_key_fn=read_key_fn, write=write),
+                write=write,
+                read_key_fn=read_key_fn,
+            )
         elif picked == "examples":
             _pause(_install_examples_message(runtime.config), write=write, read_key_fn=read_key_fn)
         elif picked == "install":
             _prompt_install(runtime.config)
+
+
+_DROIDMCP_TOOLS = (
+    ("get_battery", "Battery"),
+    ("get_wifi_info", "Wi-Fi"),
+    ("get_brightness", "Brightness"),
+    ("get_volume", "Volume"),
+    ("list_sensors", "Sensor list"),
+)
+
+
+def droidmcp_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    """Arrow menu to set up DroidMCP and read one allowed sensor."""
+    try:
+        while True:
+            set_language(runtime.config.language)
+            state = t("on") if runtime.config.mcp.enabled else t("off")
+            choices = [
+                Choice("status", t("Status")),
+                Choice("setup", t("Download and set up")),
+            ]
+            choices.extend(Choice(name, t(label)) for name, label in _DROIDMCP_TOOLS)
+            choices.append(Choice("back", t("Back")))
+            picked = choose(
+                "DroidMCP",
+                tr("Sensors  ·  client {state}", state=state),
+                choices,
+                read_key_fn=read_key_fn or _bound_read_key,
+                write=write,
+            )
+            if picked in {None, "back"}:
+                return
+            if picked == "status":
+                _pause(_mcp_card(runtime.config), write=write, read_key_fn=read_key_fn)
+            elif picked == "setup":
+                _pause(
+                    _setup_droidmcp_from_menu(runtime, read_key_fn=read_key_fn, write=write),
+                    write=write,
+                    read_key_fn=read_key_fn,
+                )
+            else:
+                _pause(_call_droidmcp_tool(runtime, picked), write=write, read_key_fn=read_key_fn)
+    finally:
+        _stop_device(runtime)
+
+
+def _setup_droidmcp_from_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> str:
+    picked = choose(
+        "DroidMCP",
+        t("Download the sensors server?"),
+        [
+            Choice("yes", t("Yes, download sensors")),
+            Choice("no", t("No, keep it off")),
+        ],
+        read_key_fn=read_key_fn or _bound_read_key,
+        write=write,
+    )
+    if picked != "yes":
+        return t("DroidMCP stays off.")
+    from agentx.setup_droidmcp import install_droidmcp
+
+    path = runtime.config.path
+    if path is None:
+        return t("Could not write the config file.")
+    try:
+        install_droidmcp(path, home=Path.home())
+    except AgentXError as exc:
+        return str(exc)
+    _reload_mcp(runtime)
+    return t("DroidMCP sensors is ready.")
+
+
+def _call_droidmcp_tool(runtime: Runtime, tool: str) -> str:
+    if not runtime.config.mcp.enabled:
+        return t("DroidMCP is off. Choose Download and set up.")
+    try:
+        return runtime.device.call(tool)
+    except AgentXError as exc:
+        return str(exc)
+
+
+def _reload_mcp(runtime: Runtime) -> None:
+    reloaded = load_config(runtime.config.path)
+    runtime.config = reloaded
+    runtime.orchestrator.config = reloaded
+    runtime.device.close()
+    runtime.device.settings = reloaded.mcp
 
 
 def config_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
@@ -456,7 +550,7 @@ def config_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
         elif picked == "key":
             _prompt_key(runtime.config)
         elif picked == "mcp":
-            _pause(_mcp_card(runtime.config), write=write, read_key_fn=read_key_fn)
+            droidmcp_menu(runtime, read_key_fn=read_key_fn, write=write)
 
 
 def _pick_scope(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
@@ -529,18 +623,41 @@ def _prompt_new_script(config: AppConfig) -> str:
     return tr("Saved {path}. Edit it, then run: agentx script run {name}", path=path, name=path.stem)
 
 
-def _prompt_run_script(config: AppConfig) -> str:
-    try:
-        name = input(t("Script name: ")).strip()
-        if not name:
-            return ""
-        task = input(t("Task for the script: ")).strip()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return ""
-        catalog = scripts_for_config(config)
+def pick_saved_script(scripts, *, read_key_fn=None, write=None) -> str | None:
+    """Arrow menu of saved scripts. Enter runs the highlighted row."""
+    if not scripts:
+        return None
+    choices = [Choice(script.id, _script_label(script)) for script in scripts]
+    return choose(
+        t("Scripts"),
+        t("Pick a script to run"),
+        choices,
+        read_key_fn=read_key_fn or _bound_read_key,
+        write=write,
+        page_size=8,
+    )
+
+
+def _script_label(script) -> str:
+    text = f"{script.id} — {script.description}" if script.description else script.id
+    return text if len(text) <= 40 else text[:39] + "…"
+
+
+def _run_picked_script(
+    config: AppConfig,
+    task: str,
+    *,
+    read_key_fn=None,
+    write=None,
+) -> str:
+    catalog = scripts_for_config(config)
+    if not catalog:
+        return t("No scripts are saved yet. Create one with: agentx script new NAME.")
+    script_id = pick_saved_script(catalog, read_key_fn=read_key_fn, write=write)
+    if script_id is None:
+        return t("No script was chosen.")
     return run_script(
-        name.casefold(),
+        script_id,
         task,
         catalog,
         timeout=config.scripts.timeout_seconds,
@@ -646,7 +763,8 @@ def _mcp_card(config: AppConfig) -> str:
             tr("Binary: {binary}", binary=config.mcp.binary),
             tr("Tools: {tools}", tools=tools),
             t("Command names stay off."),
-            t("Set mcp.enabled and mcp.tools in the config to allow a call."),
+            t("Location, shell, SMS, contacts, and GitHub stay off."),
+            t("Use Download and set up in this menu to turn the client on."),
         ]
     )
 
@@ -693,6 +811,7 @@ def run_line(runtime: Runtime, line: str) -> str:
             on_token=on_token,
             status=status,
             device=runtime.device,
+            pick=lambda: _run_picked_script(runtime.config, action[1]),
         )
     except AgentXError as exc:
         _report(exc)

@@ -67,6 +67,7 @@ def prepare_local_model(config_path: Path) -> int:
     if not is_termux():
         return 0
     _install_included_scripts(config_path)
+    print(t("3. local_model"))
     try:
         answer = input(t("Install Qwen2.5-1.5B-Instruct Q4_K_M? [y/N] "))
     except EOFError:
@@ -83,6 +84,7 @@ def prepare_local_model(config_path: Path) -> int:
     if code == 0:
         from agentx.setup_droidmcp import prepare_droidmcp
 
+        print(t("4. droidmcp"))
         prepare_droidmcp(config_path)
     return code
 
@@ -95,7 +97,10 @@ def _install_included_scripts(config_path: Path) -> None:
     directory = scripts_dir(config)
     install_examples(directory)
     from agentx.setup_droidmcp import write_startup_scripts
+    from agentx.setup_termux import write_termux_script
 
+    print(t("2. included_scripts"))
+    write_termux_script(directory)
     write_startup_scripts(directory)
     print(
         t("Included scripts are ready in {directory}. The set has {count} scripts.").format(
@@ -103,7 +108,11 @@ def _install_included_scripts(config_path: Path) -> None:
             count=INCLUDED_TOTAL,
         )
     )
-    print(t("DroidMCP setup scripts are ready: download droidmcp, configure droidmcp, droidmcp status."))
+    print(
+        t(
+            "Setup scripts: termux_setup, download_droidmcp, configure_droidmcp, check_droidmcp."
+        )
+    )
 
 
 def install_qwen(

@@ -1,12 +1,13 @@
 import threading
 
-from agentx.cli import home, interpret, main, session_card
+from agentx.cli import droidmcp_menu, home, interpret, main, pick_saved_script, session_card
 from agentx.config import AppConfig, init_config
 from agentx.llm.router import Session
 from agentx.ui import (
     GUIDES,
     Choice,
     Thinking,
+    choose,
     format_guides,
     menu_lines,
     press_guide,
@@ -32,8 +33,38 @@ def test_arrows_enter_and_numbers_move_the_menu():
     picked = press_menu(1, 3, "enter")
     assert picked.selected == 1
     assert press_menu(0, 6, "4").selected == 3
+    assert press_menu(0, 12, "10").selected == 9
     assert press_menu(0, 3, "q").closed is True
     assert press_menu(0, 3, "esc").closed is True
+
+
+def test_paged_menu_enter_runs_the_highlighted_script():
+    keys = iter(["right", "enter"])
+    picked = choose(
+        "Scripts",
+        "Pick a script to run",
+        [Choice(f"s{index}", f"s{index}") for index in range(12)],
+        read_key_fn=lambda: next(keys),
+        write=lambda _text: None,
+        color=False,
+        page_size=8,
+    )
+    assert picked == "s8"
+
+
+def test_saved_script_menu_runs_the_row_on_enter():
+    from types import SimpleNamespace
+
+    scripts = [
+        SimpleNamespace(id="notify", description="Show a notification on the phone."),
+        SimpleNamespace(id="toast", description="Show a short toast on the phone."),
+    ]
+    keys = iter(["down", "enter"])
+    assert (
+        pick_saved_script(scripts, read_key_fn=lambda: next(keys), write=lambda _text: None)
+        == "toast"
+    )
+    assert pick_saved_script([], read_key_fn=lambda: "enter", write=lambda _text: None) is None
 
 
 def test_guide_pages_cover_scripts_and_configuration(capsys):
@@ -125,6 +156,7 @@ def test_home_menu_lists_the_sections_and_q_leaves(capsys):
     drawn = "".join(seen)
     assert "AgentX" in drawn
     assert "Scripts" in drawn
+    assert "DroidMCP" in drawn
     assert "Configuration" in drawn
     assert "Help guide" in drawn
     assert capsys.readouterr().out == ""
@@ -143,3 +175,39 @@ def test_session_card_hides_the_key():
     assert "sk-ant-secret" not in card
     assert "MCP: on, tools device_status" in card
     assert "Language: en" in card
+
+
+def test_droidmcp_menu_runs_battery_and_leaves_on_q():
+    from types import SimpleNamespace
+
+    from agentx.config import AppConfig
+
+    class Device:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+            self.transport = None
+
+        def call(self, name: str) -> str:
+            self.calls.append(name)
+            return "82%"
+
+        def close(self) -> None:
+            return None
+
+    config = AppConfig()
+    config.mcp.enabled = True
+    config.mcp.tools = ("get_battery", "get_wifi_info", "get_brightness", "get_volume", "list_sensors")
+    device = Device()
+    runtime = SimpleNamespace(
+        config=config,
+        device=device,
+        orchestrator=SimpleNamespace(),
+        close_device=lambda: False,
+    )
+    keys = iter(["3", "enter", "q"])
+    seen: list[str] = []
+    droidmcp_menu(runtime, read_key_fn=lambda: next(keys), write=seen.append)
+    assert device.calls == ["get_battery"]
+    drawn = "".join(seen)
+    assert "Battery" in drawn
+    assert "Download and set up" in drawn

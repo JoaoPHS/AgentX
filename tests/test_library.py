@@ -100,9 +100,9 @@ def test_install_enables_only_the_sensor_reads(tmp_path):
     wrapper = (tmp_path / "home" / ".local" / "bin" / "droidmcp").read_text(encoding="utf-8")
     assert "DROIDMCP_TRANSPORT=stdio" in wrapper
     assert "get_location" in wrapper
-    assert (tmp_path / "scripts" / "droidmcp_download.py").is_file()
-    assert (tmp_path / "scripts" / "droidmcp_configure.py").is_file()
-    assert (tmp_path / "scripts" / "droidmcp_status.py").is_file()
+    assert (tmp_path / "scripts" / "download_droidmcp.py").is_file()
+    assert (tmp_path / "scripts" / "configure_droidmcp.py").is_file()
+    assert (tmp_path / "scripts" / "check_droidmcp.py").is_file()
 
 
 def test_a_bad_checksum_does_not_enable_the_client(tmp_path):

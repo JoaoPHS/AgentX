@@ -161,10 +161,11 @@ def test_termux_terminal_stores_the_scripts_before_asking(tmp_path, monkeypatch)
     config = tmp_path / "config.toml"
     init_config(config)
     assert prepare_local_model(config) == 0
-    assert len(list((tmp_path / "scripts").glob("*.py"))) == 53
-    assert (tmp_path / "scripts" / "droidmcp_download.py").is_file()
-    assert (tmp_path / "scripts" / "droidmcp_configure.py").is_file()
-    assert (tmp_path / "scripts" / "droidmcp_status.py").is_file()
+    assert len(list((tmp_path / "scripts").glob("*.py"))) == 54
+    assert (tmp_path / "scripts" / "termux_setup.py").is_file()
+    assert (tmp_path / "scripts" / "download_droidmcp.py").is_file()
+    assert (tmp_path / "scripts" / "configure_droidmcp.py").is_file()
+    assert (tmp_path / "scripts" / "check_droidmcp.py").is_file()
     assert len(prompts) == 1
     assert "Qwen" in prompts[0]
     assert load_config(config).mcp.enabled is False
@@ -189,10 +190,11 @@ def test_termux_home_installs_setup_scripts_without_a_tty(tmp_path, monkeypatch)
     from agentx.orchestrator import Step, build_plan
 
     scripts = load_catalog(tmp_path / "scripts")
-    assert choose_script("baixar droidmcp", scripts).id == "droidmcp_download"
-    assert choose_script("configurar droidmcp", scripts).id == "droidmcp_configure"
-    assert choose_script("droidmcp status", scripts).id == "droidmcp_status"
-    assert next(script for script in scripts if script.id == "droidmcp_download").interactive is True
+    assert choose_script("setup termux", scripts).id == "termux_setup"
+    assert choose_script("baixar droidmcp", scripts).id == "download_droidmcp"
+    assert choose_script("configurar droidmcp", scripts).id == "configure_droidmcp"
+    assert choose_script("droidmcp status", scripts).id == "check_droidmcp"
+    assert next(script for script in scripts if script.id == "download_droidmcp").interactive is True
 
     def explode(_text: str) -> str:
         raise AssertionError("the model must not run a setup script")
@@ -207,7 +209,7 @@ def test_termux_home_installs_setup_scripts_without_a_tty(tmp_path, monkeypatch)
         scripts=scripts,
     )
     assert called is False
-    assert steps == [Step("run_script", "baixar droidmcp", "", "droidmcp_download")]
+    assert steps == [Step("run_script", "baixar droidmcp", "", "download_droidmcp")]
 
 
 def test_droidmcp_is_asked_only_after_the_local_model(tmp_path, monkeypatch):

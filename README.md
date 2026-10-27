@@ -29,7 +29,7 @@ A remote key is optional. OpenRouter, Anthropic, and OpenAI are the choices. Sco
 
 JavaScript pages need an optional extra: `pip install 'agentx[browser]'`. AgentX does not download a browser.
 
-DroidMCP is optional and stays a separate project. On Termux, after the local model is installed, `agentx init` can ask before it downloads the sensors binary from the pinned DroidMCP release and checks the checksum. Location, shell, SMS, contacts, and GitHub stay off. AgentX does not vendor DroidMCP and does not listen as an MCP server. With the client off, tasks still use scripts, local models, and remote APIs. No combined RAM or latency numbers are published yet.
+DroidMCP is optional and stays a separate project. Open the **DroidMCP** item on the home menu. The first time, choose **Download and set up**. That fetches the pinned sensors binary and checks the checksum. Then choose Battery, Wi-Fi, Brightness, Volume, or Sensor list with the arrows and press Enter. Location, shell, SMS, contacts, and GitHub stay off. AgentX does not vendor DroidMCP and does not listen as an MCP server. With the client off, tasks still use scripts, local models, and remote APIs. No combined RAM or latency numbers are published yet.
 
 ## What changed
 
@@ -73,7 +73,7 @@ agentx "create a script called note that saves a short note"
 agentx "run script note remember the milk"
 ```
 
-There is no graphical interface. The default local model is a separate `llama-server` process. It starts for a request and exits after it sits idle, so the weights are not kept in memory. With `[local] provider = "ollama"`, AgentX does not start llama-server and talks to Ollama on loopback instead.
+The terminal menu is the interface: arrows, numbers, and Enter. The default local model is a separate `llama-server` process. It starts for a request and exits after it sits idle, so the weights are not kept in memory. With `[local] provider = "ollama"`, AgentX does not start llama-server and talks to Ollama on loopback instead.
 
 ```mermaid
 flowchart TD
@@ -103,17 +103,26 @@ Install Termux from F-Droid. The Play Store build is out of date.
 
 ```bash
 pkg update && pkg upgrade -y
-pkg install -y python git dos2unix
+pkg install -y python git
 git clone https://github.com/JoaoPHS/AgentX
 cd AgentX
-dos2unix init.sh
-chmod +x init.sh
-./init.sh
+python -m agentx init
 ```
 
-`init.sh` uses Unix line endings and the Termux bash path. A Windows clone can still arrive with CRLF, so `dos2unix` is the step that avoids `bad interpreter: No such file or directory`. The starter asks Termux for storage access when that command exists, installs this folder so `agentx` is this clone, then runs `python -m agentx init`. After that, start the app with `agentx`.
+`agentx init` starts with `termux_setup`. That first process installs `dos2unix` and `termux-api`, updates the clone, rewrites `init.sh` with Unix line endings, marks it executable, asks Termux for storage access when that command exists, and installs this folder so `agentx` is this clone. The Termux:API Android app still has to come from F-Droid. The next processes are `included_scripts`, `local_model`, and `droidmcp`.
+
+If `agentx` on PATH is still an older install, run `python -m agentx init` from this folder, or `./init.sh` after `dos2unix init.sh` and `chmod +x init.sh`. After that, start the app with `agentx`.
 
 If a script later needs the phone storage or the network, run `termux-setup-storage` once.
+
+### DroidMCP menu
+
+1. Start AgentX and choose **DroidMCP**.
+2. Choose **Download and set up**, then **Yes, download sensors**.
+3. Choose **Battery**, **Wi-Fi**, **Brightness**, **Volume**, or **Sensor list**.
+4. Press `q` to go back. AgentX stops the DroidMCP process when you leave that menu.
+
+You do not type a tool name. `agentx mcp tools` still lists the names from the command line.
 
 Python 3.11 or newer. The only required dependency is `httpx`. There is no LangChain and no PyTorch. Script-rendered pages can use the optional `browser` extra. That extra is not part of the base install.
 
