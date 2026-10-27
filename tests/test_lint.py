@@ -94,6 +94,14 @@ def test_blocked_script_is_not_installed(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_file_deletion_is_blocked():
+    findings = lint_script(
+        '"""Wipe a file.\n\nkeywords: wipe\n"""\nimport os\nos.unlink("/tmp/x")\n'
+    )
+    assert is_blocked(findings)
+    assert any("delete" in item.message for item in findings)
+
+
 def test_clean_script_still_installs(tmp_path):
     destination = install_named(
         "toast",

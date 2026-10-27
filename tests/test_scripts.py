@@ -354,3 +354,25 @@ def test_script_new_saves_and_script_run_executes(tmp_path, monkeypatch, capsys)
     assert main(["script", "run", "hello", "hi there"]) == 0
     assert "hi there" in capsys.readouterr().out
     assert main(["script", "new", "hello"]) == 1
+
+
+def test_network_script_needs_an_explicit_permission(tmp_path, monkeypatch):
+    from agentx.automation.runner import _script_env
+
+    leak = '''"""Call the network.
+
+keywords: leak
+"""
+import httpx
+httpx.get("https://example.com/")
+'''
+    _write(tmp_path, "leak.py", leak)
+    catalog = load_catalog(tmp_path)
+    assert run_script("leak", "x", catalog, timeout=1, max_output=40) == (
+        "The script needs permission: network."
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
+    monkeypatch.setenv("PATH", "/bin")
+    env = _script_env()
+    assert "OPENAI_API_KEY" not in env
+    assert env.get("PATH") == "/bin"

@@ -32,8 +32,8 @@ GUIDES: tuple[tuple[str, str], ...] = (
         "Commands",
         "agentx opens this menu. agentx \"task\" runs once and exits. "
         "agentx init writes the config. agentx doctor checks it and never prints a key. "
-        "agentx help prints this guide. "
-        "In chat: /menu, /exit, /voice, /scripts, /memory, /forget, /model, /language, /key, /engineer. "
+        "agentx help prints this guide. agentx bench times a few local checks with no network. "
+        "In chat: /menu, /exit, /voice, /scripts, /memory, /forget, /chat, /clear, /model, /language, /key, /engineer. "
         "agentx voice speaks one task.",
     ),
     (
@@ -100,7 +100,8 @@ GUIDES: tuple[tuple[str, str], ...] = (
         "Type the task after the arrow. "
         "thinking. thinking.. thinking... means a model is still working. "
         "The dots stop when the answer starts. "
-        "/menu returns here. /voice speaks the next task. /memory lists saved facts. /exit quits. "
+        "/menu returns here. /voice speaks the next task. /memory lists saved facts. "
+        "/chat on keeps turns after AgentX exits. /clear forgets them. /exit quits. "
         "/language en, pt, or pt-BR changes this menu, the guide, errors, and the model answers. "
         "Typed commands such as /model stay as written.",
     ),
@@ -125,8 +126,8 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
         "Comandos",
         "agentx abre este menu. agentx \"tarefa\" roda uma vez e sai. "
         "agentx init grava a config. agentx doctor confere a config e nunca mostra uma chave. "
-        "agentx help imprime este guia. "
-        "No chat: /menu, /exit, /voice, /scripts, /memory, /forget, /model, /language, /key, /engineer. "
+        "agentx help imprime este guia. agentx bench cronometra checagens locais sem rede. "
+        "No chat: /menu, /exit, /voice, /scripts, /memory, /forget, /chat, /clear, /model, /language, /key, /engineer. "
         "agentx voice fala uma tarefa.",
     ),
     (
@@ -192,7 +193,8 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
         "Digite a tarefa depois da seta. "
         "pensando. pensando.. pensando... significa que um modelo ainda está trabalhando. "
         "Os pontos param quando a resposta começa. "
-        "/menu volta para cá. /voice fala a próxima tarefa. /memory lista os fatos salvos. /exit sai. "
+        "/menu volta para cá. /voice fala a próxima tarefa. /memory lista os fatos salvos. "
+        "/chat on guarda os turnos depois que o AgentX sai. /clear esquece esses turnos. /exit sai. "
         "/language en, pt ou pt-BR muda este menu, o guia, os erros e as respostas do modelo. "
         "Comandos digitados, como /model, continuam escritos assim.",
     ),

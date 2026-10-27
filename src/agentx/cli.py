@@ -35,6 +35,7 @@ from agentx.automation.catalog import (
 from agentx.automation.runner import run_script
 from agentx.automation.lint import is_blocked
 from agentx.automation.registry import is_gist_target, stage_gist, stage_named
+from agentx.chat import clear_turns, load_turns, save_turns, trim_history
 from agentx.memory import drop_fact, format_facts, load_facts
 from agentx.voice import capture_speech
 from agentx.orchestrator import Orchestrator
@@ -64,6 +65,7 @@ Usage:
   agentx script install NAME [--yes] install a community script, or a public gist URL
   agentx script examples install the 50 included scripts
   agentx voice           speak one task through Termux:API
+  agentx bench           run offline latency checks on this machine
 
 In the chat:
   /model                      show the current key scope
@@ -82,6 +84,10 @@ In the chat:
   /scripts                    list installed automation scripts
   /memory                     list remembered facts
   /forget KEY                 drop one remembered fact
+  /chat                       show whether turns are saved
+  /chat on                    save turns across launches
+  /chat off                   stop saving turns
+  /clear                      forget the saved and in-memory turns
   /voice                      speak the next task
   /menu                       return to the home menu
   /exit
@@ -103,6 +109,7 @@ Uso:
   agentx script install NOME [--yes] instala um script da comunidade, ou uma URL de gist público
   agentx script examples instala os 50 scripts inclusos
   agentx voice           fala uma tarefa pelo Termux:API
+  agentx bench           roda checagens de latência offline nesta máquina
 
 No chat:
   /model                      mostra o escopo atual da chave
@@ -122,6 +129,10 @@ No chat:
   /scripts                    lista os scripts instalados
   /memory                     lista os fatos lembrados
   /forget CHAVE               apaga um fato lembrado
+  /chat                       mostra se os turnos são salvos
+  /chat on                    salva os turnos entre as sessões
+  /chat off                   para de salvar os turnos
+  /clear                      esquece os turnos salvos e os da memória
   /voice                      fala a próxima tarefa
   /menu                       volta ao menu inicial
   /exit
@@ -189,6 +200,12 @@ def main(argv: list[str] | None = None) -> int:
 
         prepare_termux(path)
         return prepare_local_model(path)
+    if args == ["bench"]:
+        from agentx.bench import render_bench, run_bench
+
+        rows = run_bench()
+        print(render_bench(rows))
+        return 0 if all(row.ok for row in rows) else 1
     if args and args[0] == "doctor":
         if args[1:]:
             print(t("Use agentx doctor."), file=sys.stderr)
@@ -236,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def build_runtime(config: AppConfig) -> Runtime:
     session = Session()
+    if config.save_chat:
+        session.history.extend(load_turns(config))
     governor = Governor(config.governor)
     local = LocalServer(config.local, governor)
     remote = RemoteClient(config, session)
@@ -384,6 +403,8 @@ def chat(runtime: Runtime) -> str:
     if _isatty(sys.stdout):
         print("\033[2J\033[H", end="")
     print(_tone_prompt(t("Chat  ·  /menu returns  ·  /voice speaks  ·  /exit quits")))
+    if runtime.config.save_chat and runtime.session.history:
+        print(tr("Restored {count} earlier turns.", count=len(runtime.session.history)))
     try:
         while True:
             try:
@@ -541,6 +562,7 @@ def config_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
             Choice("show", t("Show current settings")),
             Choice("scope", t("Model scope")),
             Choice("language", t("Language")),
+            Choice("chat", t("Saved chat")),
             Choice("key", t("Save a provider key")),
             Choice("mcp", "DroidMCP"),
             Choice("back", t("Back")),
@@ -560,6 +582,8 @@ def config_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
             _pick_scope(runtime, read_key_fn=read_key_fn, write=write)
         elif picked == "language":
             _pick_language(runtime, read_key_fn=read_key_fn, write=write)
+        elif picked == "chat":
+            _pick_chat(runtime, read_key_fn=read_key_fn, write=write)
         elif picked == "key":
             _prompt_key(runtime.config)
         elif picked == "mcp":
@@ -606,6 +630,28 @@ def _pick_language(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
     if picked in {None, "back"}:
         return
     _pause(apply_language_command(picked, runtime.config), write=write, read_key_fn=read_key_fn)
+
+
+def _pick_chat(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    choices = [
+        Choice("on", t("Save turns across launches")),
+        Choice("off", t("Do not save chat")),
+        Choice("back", t("Back")),
+    ]
+    picked = choose(
+        t("Saved chat"),
+        t("Keep earlier turns after AgentX exits"),
+        choices,
+        read_key_fn=read_key_fn or _bound_read_key,
+        write=write,
+    )
+    if picked in {None, "back"}:
+        return
+    _pause(
+        apply_chat_command(picked, runtime.session, runtime.config),
+        write=write,
+        read_key_fn=read_key_fn,
+    )
 
 
 def _prompt_key(config: AppConfig) -> None:
@@ -761,6 +807,7 @@ def session_card(config: AppConfig) -> str:
                 scope=config.routing.remote_scope,
             ),
             tr("MCP: {state}, tools {tools}", state=state, tools=tools),
+            tr("Saved chat: {state}", state=t("on") if config.save_chat else t("off")),
             tr("Scripts: {directory}", directory=scripts_dir(config)),
         ]
     )
@@ -874,6 +921,12 @@ def run_line(runtime: Runtime, line: str) -> str:
     runtime.session.history[:] = trim_history(
         runtime.session.history, runtime.config.limits.history_chars
     )
+    if runtime.config.save_chat:
+        save_turns(
+            runtime.config,
+            runtime.session.history,
+            max_chars=runtime.config.limits.history_chars,
+        )
     return "ok"
 
 
@@ -891,6 +944,14 @@ def interpret(line: str, session: Session, config: AppConfig) -> tuple[str, str,
         return ("reply", t("Use /forget followed by the fact name."), False)
     if text.startswith("/forget "):
         return ("reply", _forget_fact(config, text[len("/forget ") :].strip()), False)
+    if text == "/clear":
+        session.history.clear()
+        clear_turns(config)
+        return ("reply", t("Chat history was cleared."), False)
+    if text == "/chat":
+        return ("reply", apply_chat_command("", session, config), False)
+    if text.startswith("/chat "):
+        return ("reply", apply_chat_command(text[len("/chat ") :].strip(), session, config), False)
     if text == "/model":
         return ("reply", describe_session(session, config), False)
     if text.startswith("/model "):
@@ -908,6 +969,29 @@ def interpret(line: str, session: Session, config: AppConfig) -> tuple[str, str,
     if text.startswith("/engineer "):
         return ("task", text[len("/engineer ") :].strip(), True)
     return ("task", text, False)
+
+
+def apply_chat_command(argument: str, session: Session, config: AppConfig) -> str:
+    token = argument.strip().casefold()
+    if not token:
+        if config.save_chat:
+            return t("Chat history is saved.")
+        return t("Chat history is not saved.")
+    if token in {"on", "save", "yes"}:
+        failed = _save_sections(config, {"preferences": {"save_chat": True}})
+        if failed:
+            return failed
+        if session.history:
+            save_turns(config, session.history, max_chars=config.limits.history_chars)
+        else:
+            session.history.extend(load_turns(config))
+        return t("Chat history will be saved.")
+    if token in {"off", "no"}:
+        failed = _save_sections(config, {"preferences": {"save_chat": False}})
+        if failed:
+            return failed
+        return t("Chat history will not be saved.")
+    return t("Use /chat on, /chat off, or /clear.")
 
 
 def apply_model_command(argument: str, session: Session, config: AppConfig | None = None) -> str:
@@ -1045,7 +1129,7 @@ def _save_model(
     return _save_sections(config, sections)
 
 
-def _save_sections(config: AppConfig, sections: dict[str, dict[str, str]]) -> str | None:
+def _save_sections(config: AppConfig, sections: dict[str, dict[str, str | bool]]) -> str | None:
     try:
         save_config_values(config, sections)
     except AgentXError as exc:
@@ -1201,19 +1285,6 @@ def _script_list(config: AppConfig) -> str:
     lines = [tr("Scripts in {directory}:", directory=directory)]
     lines.extend(f"{script.id}: {script.description}" for script in scripts)
     return "\n".join(lines)
-
-
-def trim_history(history: list[dict], max_chars: int) -> list[dict]:
-    kept: list[dict] = []
-    total = 0
-    for message in reversed(history):
-        size = len(str(message.get("content", "")))
-        if kept and total + size > max_chars:
-            break
-        kept.append(message)
-        total += size
-    kept.reverse()
-    return kept
 
 
 def _utf8_stdio() -> None:

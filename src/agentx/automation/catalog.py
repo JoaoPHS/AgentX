@@ -15,6 +15,7 @@ _ID = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _KEYWORDS = re.compile(r"^keywords:\s*(.*)$", re.IGNORECASE)
 _PATTERNS = re.compile(r"^patterns:\s*(.*)$", re.IGNORECASE)
 _INTERACTIVE = re.compile(r"^interactive:\s*yes\s*$", re.IGNORECASE)
+_PERMISSIONS = re.compile(r"^permissions:\s*(.*)$", re.IGNORECASE)
 _REGEX_MARK = re.compile(r"[()\[\]|+*?\\]")
 _FILLER = frozenset(
     {
@@ -114,6 +115,7 @@ class ScriptInfo:
     keywords: tuple[str, ...]
     patterns: tuple[str, ...] = ()
     interactive: bool = False
+    permissions: tuple[str, ...] = ()
 
 
 def is_script_id(value: str) -> bool:
@@ -377,6 +379,7 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
     keywords: list[str] = []
     patterns: list[str] = []
     interactive = False
+    permissions: list[str] = []
     for line in document.splitlines():
         stripped = line.strip()
         found = _KEYWORDS.match(stripped)
@@ -386,6 +389,14 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
         found = _PATTERNS.match(stripped)
         if found:
             patterns.extend(part.strip() for part in found.group(1).split(",") if part.strip())
+            continue
+        found = _PERMISSIONS.match(stripped)
+        if found:
+            permissions.extend(
+                part.strip().casefold()
+                for part in found.group(1).split(",")
+                if part.strip()
+            )
             continue
         if _INTERACTIVE.match(stripped):
             interactive = True
@@ -401,7 +412,12 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
             seen.add(token)
             folded.append(token)
     folded_patterns = tuple(_fold(pattern) for pattern in patterns if _fold(pattern))
-    return ScriptInfo(script_id, path, description, tuple(folded), folded_patterns, interactive)
+    from agentx.automation.lint import ALLOWED_PERMISSIONS
+
+    allowed = tuple(name for name in permissions if name in ALLOWED_PERMISSIONS)
+    return ScriptInfo(
+        script_id, path, description, tuple(folded), folded_patterns, interactive, allowed
+    )
 
 
 def _clean_description(description: str, script_id: str) -> str:

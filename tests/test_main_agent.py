@@ -1,4 +1,4 @@
-from agentx.agents.main_agent import FINAL_INSTRUCTION, LIMIT_MESSAGE, run_main
+from agentx.agents.main_agent import FINAL_INSTRUCTION, INVALID_TOOL, LIMIT_MESSAGE, run_main
 from agentx.config import LimitSettings
 from agentx.tools.fetch import Page
 
@@ -81,3 +81,21 @@ def test_final_answer_is_kept_when_it_is_not_a_tool():
     )
     assert result == "The result is four notes."
     assert FINAL_INSTRUCTION in router.calls[-1][-1]["content"]
+
+
+def test_invalid_tool_text_is_a_structured_failure_not_an_answer():
+    router = Scripted(
+        [
+            'TOOL fetch_article {"url":"ftp://example.com/a"}',
+            "I will answer without that page.",
+        ]
+    )
+    result = run_main(
+        "summarize the page",
+        router=router,
+        fetch=lambda url: Page(url, "note", False),
+        limits=_limits(),
+        timeout=5,
+    )
+    assert result == "I will answer without that page."
+    assert INVALID_TOOL in router.calls[1][-1]["content"] or "invalid" in router.calls[1][-1]["content"]

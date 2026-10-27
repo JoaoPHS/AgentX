@@ -239,6 +239,27 @@ def test_directory_tool_receives_only_the_configured_root():
     assert "user said" not in json.dumps(call)
 
 
+def test_mcp_error_code_is_kept_and_a_parent_root_is_refused():
+    opened = []
+    session = McpSession(
+        _settings(),
+        Gov(),
+        opener=_opener(
+            opened,
+            [_init(), _listed("device_status"), {"jsonrpc": "2.0", "id": 3, "error": {"code": -32000}}],
+        ),
+    )
+    with pytest.raises(AgentXError, match=r"tool \(-32000\)"):
+        session.call("device_status")
+    bad = McpSession(
+        _settings(tools=("list_dir",), root="/tmp/../etc"),
+        Gov(),
+        opener=lambda _settings: (_ for _ in ()).throw(AssertionError("must not spawn")),
+    )
+    with pytest.raises(AgentXError, match="root"):
+        bad.call("list_dir")
+
+
 def test_directory_tool_without_a_root_does_not_spawn():
     def opener(_settings):
         raise AssertionError("a missing root must not spawn")

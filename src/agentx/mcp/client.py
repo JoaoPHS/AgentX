@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import shutil
+import signal
 import subprocess
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 from agentx.config import is_command_tool
 from agentx.errors import AgentXError
 from agentx.resources.governor import read_cpu_temperature
 
 _MAX_RESULT = 4000
+_MAX_FRAME = 262144
+_TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]{0,64}$")
 
 
 @dataclass
@@ -38,23 +44,41 @@ class ProcessTransport(Transport):
         if path is None:
             raise AgentXError("DroidMCP is not available.")
         self.timeout = timeout
-        self.proc = subprocess.Popen(
-            [path],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
+        kwargs: dict = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.DEVNULL,
+        }
+        if os.name == "posix":
+            kwargs["start_new_session"] = True
+        self.proc = subprocess.Popen([path], **kwargs)
 
     def request(self, message: dict) -> dict:
+        if self.proc.poll() is not None:
+            raise AgentXError("DroidMCP stopped.")
         self._write(message)
         if self.proc.stdout is None:
             raise AgentXError("DroidMCP is not available.")
-        timer = threading.Timer(self.timeout, self.proc.kill)
+        timed_out = threading.Event()
+
+        def expire() -> None:
+            timed_out.set()
+            _stop_process(self.proc)
+
+        timer = threading.Timer(self.timeout, expire)
         timer.start()
         try:
-            return _read_message(self.proc.stdout)
+            reply = _read_message(self.proc.stdout)
+        except AgentXError:
+            if timed_out.is_set():
+                raise AgentXError("DroidMCP timed out.")
+            raise
         finally:
             timer.cancel()
+        expected = message.get("id")
+        if expected is not None and reply.get("id") != expected:
+            raise AgentXError("DroidMCP sent a mismatched reply.")
+        return reply
 
     def notify(self, message: dict) -> None:
         self._write(message)
@@ -66,12 +90,7 @@ class ProcessTransport(Transport):
         self.proc.stdin.flush()
 
     def close(self) -> None:
-        if self.proc.poll() is None:
-            self.proc.kill()
-        try:
-            self.proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            pass
+        _stop_process(self.proc)
 
 
 class McpSession:
@@ -89,7 +108,11 @@ class McpSession:
     def call(self, name: str) -> str:
         if not self.settings.enabled:
             raise AgentXError("The MCP client is off.")
-        if is_command_tool(name) or name not in self.settings.tools:
+        if (
+            not _TOOL_NAME.fullmatch(name)
+            or is_command_tool(name)
+            or name not in self.settings.tools
+        ):
             raise AgentXError("That tool is not allowed.")
         _warm_screenshot(self.settings, self.governor, name)
         arguments = _arguments(name, self.settings.root)
@@ -159,10 +182,15 @@ def _warm_screenshot(settings, governor, name: str) -> None:
 def _arguments(name: str, root: str) -> dict:
     folded = name.casefold()
     if any(word in folded for word in ("file", "dir", "list")):
-        if not root.strip():
-            raise AgentXError("The MCP root is missing from the config.")
-        return {"path": root}
+        return {"path": _safe_root(root)}
     return {}
+
+
+def _safe_root(root: str) -> str:
+    text = (root or "").strip()
+    if not text or ".." in Path(text).parts:
+        raise AgentXError("The MCP root is missing from the config.")
+    return text
 
 
 def _open(settings, opener) -> Transport:
@@ -207,7 +235,11 @@ def _listed_from(message: dict) -> list[McpTool]:
 def _result_text(message: dict) -> str:
     if not isinstance(message, dict):
         raise AgentXError("DroidMCP returned an empty result.")
-    if message.get("error"):
+    error = message.get("error")
+    if error:
+        code = error.get("code") if isinstance(error, dict) else None
+        if isinstance(code, int):
+            raise AgentXError(f"DroidMCP could not run that tool ({code}).")
         raise AgentXError("DroidMCP could not run that tool.")
     result = message.get("result")
     if not isinstance(result, dict):
@@ -241,6 +273,8 @@ def _read_message(stream) -> dict:
         if len(header) > 8192:
             raise AgentXError("DroidMCP sent a malformed header.")
     length = _content_length(header)
+    if length > _MAX_FRAME:
+        raise AgentXError("DroidMCP sent a malformed header.")
     body = b""
     while len(body) < length:
         chunk = stream.read(length - len(body))
@@ -264,3 +298,31 @@ def _content_length(header: bytes) -> int:
             if number.isdigit():
                 return int(number)
     raise AgentXError("DroidMCP sent a malformed header.")
+
+
+def _stop_process(proc) -> None:
+    if proc.poll() is not None:
+        return
+    if os.name == "posix":
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            proc.terminate()
+    else:
+        proc.terminate()
+    try:
+        proc.wait(timeout=1)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    if os.name == "posix":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            proc.kill()
+    else:
+        proc.kill()
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        return

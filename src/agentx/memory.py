@@ -55,6 +55,10 @@ def remember_command(message: str) -> Fact | None:
     return Fact(_clean_key(pair.group(1)), pair.group(2).strip().strip("."))
 
 
+def looks_like_secret(text: str) -> bool:
+    return bool(_SECRET.search(text or ""))
+
+
 def forget_command(message: str) -> str | None:
     match = _FORGET.fullmatch(_fold(message.strip()))
     if match is None:

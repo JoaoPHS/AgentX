@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import re
-
 from agentx.agents.subagents import summarize_url
 from agentx.config import answer_instruction
 from agentx.context import attach_folder_context
+from agentx.contract import ToolResult, looks_like_tool, parse_tool_call
 from agentx.errors import AgentXError
 from agentx.i18n import t
 from agentx.llm.router import token_budget
@@ -29,29 +27,15 @@ MAIN_SYSTEM = (
 
 FINAL_INSTRUCTION = "Do not use tools. Reply now with the result of the task."
 
-_TOOL = re.compile(r"^TOOL\s+(fetch_article|summarize_url|run_script)\s+(\{.*\})\s*$", re.DOTALL)
-
 LIMIT_MESSAGE = "The task could not be finished within the step limit."
+INVALID_TOOL = "That tool call is not valid."
 
 
-def parse_tool(text: str) -> tuple[str, dict] | None:
-    match = _TOOL.match(text.strip())
-    if match is None:
+def parse_tool(text: str, *, scripts=()) -> tuple[str, dict] | None:
+    call = parse_tool_call(text, scripts=scripts)
+    if call is None:
         return None
-    try:
-        payload = json.loads(match.group(2))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    name = match.group(1)
-    if name == "run_script":
-        if not isinstance(payload.get("id"), str) or not payload["id"].strip():
-            return None
-        return name, payload
-    if not isinstance(payload.get("url"), str):
-        return None
-    return name, payload
+    return call.name, call.payload
 
 
 def run_main(
@@ -92,10 +76,20 @@ def run_main(
             timeout=timeout,
             on_token=emitter,
         )
-        tool = None if forced else parse_tool(text)
+        tool = None if forced else parse_tool(text, scripts=scripts)
         if tool is None:
-            if forced and parse_tool(text):
+            if forced and parse_tool(text, scripts=scripts):
                 return LIMIT_MESSAGE
+            if not forced and looks_like_tool(text):
+                used += 1
+                messages.append({"role": "assistant", "content": text})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": ToolResult("invalid", False, t(INVALID_TOOL)).render(),
+                    }
+                )
+                continue
             return text or "The model returned no text."
         name, payload = tool
         used += 1
@@ -111,7 +105,7 @@ def run_main(
             language=language,
         )
         messages.append({"role": "assistant", "content": text})
-        messages.append({"role": "user", "content": f"Result of {name}:\n{observation}"})
+        messages.append({"role": "user", "content": observation.render()})
 
 
 def _system_prompt(scripts, language: str = "en") -> str:
@@ -135,24 +129,28 @@ def _run_tool(
     timeout: float,
     run_script,
     language: str = "en",
-) -> str:
+) -> ToolResult:
     try:
         if name == "fetch_article":
-            return excerpt(fetch(payload["url"]).text)
+            return ToolResult(name, True, excerpt(fetch(payload["url"]).text))
         if name == "run_script":
             if run_script is None:
-                return t(f"Unknown script: {payload['id']}.")
-            return run_script(str(payload["id"]).casefold(), brief)
-        return summarize_url(
-            payload["url"],
-            router=router,
-            fetch=fetch,
-            limits=limits,
-            timeout=timeout,
-            language=language,
+                return ToolResult(name, False, t(f"Unknown script: {payload['id']}."))
+            return ToolResult(name, True, run_script(str(payload["id"]).casefold(), brief))
+        return ToolResult(
+            name,
+            True,
+            summarize_url(
+                payload["url"],
+                router=router,
+                fetch=fetch,
+                limits=limits,
+                timeout=timeout,
+                language=language,
+            ),
         )
     except AgentXError as exc:
-        return str(exc)
+        return ToolResult(name, False, str(exc))
 
 
 def _hide_tools(on_token):

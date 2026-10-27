@@ -6,6 +6,7 @@ from agentx.memory import (
     format_facts,
     forget_command,
     load_facts,
+    looks_like_secret,
     remember_command,
     save_fact,
 )
@@ -54,6 +55,8 @@ def test_remember_and_forget_parse_english_and_portuguese():
     assert forget_command("forget the server") == "server"
     assert forget_command("esqueca o servidor") == "servidor"
     assert remember_command("hello there") is None
+    assert looks_like_secret("my api key is sk-secret") is True
+    assert looks_like_secret("compare the two cache options") is False
 
 
 def test_facts_round_trip_and_reject_secrets(tmp_path):

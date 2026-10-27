@@ -87,6 +87,8 @@ def test_guide_pages_cover_scripts_and_configuration(capsys):
     assert "llama-server" in text
     assert "does not mean the script is safe" in text
     assert "AgentX is not an MCP server" in text
+    assert "/chat on keeps turns after AgentX exits" in text
+    assert "/clear forgets them" in text
     index, closed = press_guide(0, "right")
     assert index == 1
     assert closed is False
@@ -164,6 +166,11 @@ def test_home_menu_lists_the_sections_and_q_leaves(capsys):
 
 def test_menu_command_is_not_a_task():
     assert interpret("/menu", Session(), AppConfig()) == ("menu", "", False)
+    assert interpret("/chat", Session(), AppConfig()) == ("reply", "Chat history is not saved.", False)
+    session = Session()
+    session.history.append({"role": "user", "content": "hi"})
+    assert interpret("/clear", session, AppConfig()) == ("reply", "Chat history was cleared.", False)
+    assert session.history == []
 
 
 def test_session_card_hides_the_key():
@@ -175,6 +182,7 @@ def test_session_card_hides_the_key():
     assert "sk-ant-secret" not in card
     assert "MCP: on, tools device_status" in card
     assert "Language: en" in card
+    assert "Saved chat: off" in card
 
 
 def test_droidmcp_menu_runs_battery_and_leaves_on_q():

@@ -7,7 +7,7 @@ $ agentx "show a toast that the backup finished"
 Toast shown.
 ```
 
-That line comes from the `toast` script after `agentx script examples`. The script calls `termux-toast` when that command is installed. No benchmark numbers are published yet.
+That line comes from the `toast` script after `agentx script examples`. The script calls `termux-toast` when that command is installed. `agentx bench` prints local offline timings on this machine. It does not publish product-wide RAM, MCP, or remote-cost numbers.
 
 ## Start here
 
@@ -19,6 +19,7 @@ agentx init
 agentx doctor
 agentx script examples
 agentx "show a toast that the backup finished"
+agentx bench
 ```
 
 A local model is optional. Use `llama-server` with a GGUF file, or Ollama at `127.0.0.1:11434`. On Termux, `agentx init` can ask before it downloads Qwen2.5-1.5B-Instruct Q4_K_M into `~/ollama/models`. The file is kept only when it is about 1.0G. AgentX starts `llama-server` on `127.0.0.1:8080` in the background when a task needs it, then stops that process when AgentX exits or after it sits idle. If that port already answers, AgentX uses the process that is already there.
@@ -49,6 +50,8 @@ One task can read a single matching folder, add a short excerpt to that turn, an
 
 Facts such as a server name or a destination email can be stored with `remember that my server is home`. They live in `~/.config/agentx/memory.db`. The next task sees those facts. `/memory` lists them. `/forget server` drops one. API keys and other secrets are not stored.
 
+Chat turns stay in memory for the current process. `/chat on` also writes them to `~/.config/agentx/chat.db`, so the next `agentx` launch or one-shot command can continue that conversation. `/chat off` stops saving. `/clear` drops the saved turns and the in-memory ones. Facts stay in `memory.db`. Folder excerpts are still dropped at the end of the turn and are not written to `chat.db`. Secrets are not stored. The default is off.
+
 `/language en`, `/language pt`, or `/language pt-BR` changes the menus, the help guide, errors, and the model answers. Typed commands such as `/model` and `agentx doctor` stay the same words.
 
 OpenRouter, OpenAI, and Anthropic model ids are free strings. A slug such as `meta-llama/llama-3.2-3b-instruct:free` is saved and sent as written, including the `:free` suffix. A 404 means that provider rejected the id. AgentX does not keep a fixed list.
@@ -59,7 +62,7 @@ Each of `[openrouter]`, `[anthropic]`, and `[openai]` has an editable `max_token
 
 `agentx doctor` checks the config file (`MULTIAGENTX_CONFIG` or `~/.config/agentx/config.toml`). A missing file or broken TOML fails with a line number. It never prints keys, never starts llama-server, and never calls a remote API.
 
-AgentX can speak stdio MCP to one external DroidMCP binary. The projects stay separate. There is no HTTP listener and no MCP server inside AgentX. The process starts only when a task asks for an allowed tool. It stops before a local model runs, so the two are not in memory together. It also stops when you return to the menu or quit. A one-shot command stops it when that command ends. `agentx mcp tools` lists names and exits. Only names in `mcp.tools` can be called. Command names are refused. An empty list calls nothing. A missing binary does not stop the rest of the task. Combined RAM and latency have not been measured.
+AgentX can speak stdio MCP to one external DroidMCP binary. The projects stay separate. There is no HTTP listener and no MCP server inside AgentX. The process starts only when a task asks for an allowed tool. Each call has a timeout; a hung process is terminated, then killed, including its process group on POSIX. A mismatched JSON-RPC id is refused. Tool names must match `[a-z][a-z0-9_]*` and sit on the allowlist. Directory tools receive only the configured root, and a root with `..` is refused. MCP error codes come back as text; image payloads are not. The process stops before a local model runs, so the two are not in memory together. It also stops when you return to the menu or quit. A one-shot command stops it when that command ends. `agentx mcp tools` lists names and exits. Command names are refused. An empty list calls nothing. A missing binary does not stop the rest of the task. Combined RAM and latency have not been measured.
 
 ```toml
 [local]
@@ -222,10 +225,13 @@ local.model_path: OK
 ```toml
 [preferences]
 language = "en"
+save_chat = false
 
 [context]
 dir = ""
 ```
+
+`save_chat` keeps the last turns in `chat.db` when it is `true`. The store is trimmed to `limits.history_chars` (3000). `/chat on` and `/chat off` write this flag. The folder excerpt for the current turn is still not saved.
 
 `context.dir` is an optional extra root for an explicit path in a task. Leave it empty to use the working directory and the scripts directory only.
 
@@ -257,7 +263,7 @@ A condition such as `but`, `if`, `don't`, or `não` does not create or run a scr
 
 `script examples` copies the 50 included scripts: toast, notification, battery, and smaller checks and text helpers. Those same files are stored in the `scripts` folder of this repository. A clear phrase runs one of them without a model call.
 
-`script install NAME` reads a community index and can save that one Python file. The default index is the script list in this repository. A public gist URL, or `gist:ID`, offers the Python file from that gist. If the gist has several Python files, add the file name. Before anything is written, AgentX prints the source URL, the SHA-256, a static safety check, and a reminder that installing does not mean the script is safe. A script that reads `~/.config/agentx`, calls `eval` or `exec`, or sends HTTP to a raw IP is blocked. Other process or network use is a warning. Confirm with `y` at a terminal, or pass `--yes`. Without one of those, the file is not saved. Install does not run the script. Downloads stay on HTTPS, reject private addresses, and accept only GitHub hosts plus the host of your index. Set `scripts.index_url` when you want a different community index.
+`script install NAME` reads a community index and can save that one Python file. The default index is the script list in this repository. A public gist URL, or `gist:ID`, offers the Python file from that gist. If the gist has several Python files, add the file name. Before anything is written, AgentX prints the source URL, the SHA-256, a static safety check, and a reminder that installing does not mean the script is safe. A script that reads `~/.config/agentx`, calls `eval` or `exec`, deletes files, or sends HTTP to a raw IP is blocked. Other process or network use is a warning. Confirm with `y` at a terminal, or pass `--yes`. Without one of those, the file is not saved. Install does not run the script. At run time the same check runs again. Network, home, and file writes outside the script folder need an explicit `permissions:` line in the docstring (`process`, `network`, `files`, `home`). A process-only Termux helper may omit that line. The runner strips API keys from the environment, drops `PYTHONPATH`, and kills the process group if the script times out. Downloads stay on HTTPS, reject private addresses, and accept only GitHub hosts plus the host of your index. Set `scripts.index_url` when you want a different community index.
 
 A script needs a docstring with `keywords`, `patterns`, or both. The file name is the id the orchestrator uses. A pattern is a phrase or a regular expression. Words in a phrase may have a few words between them, so `send a notice` matches `send a short notice` and `notify me` matches `notify me that the backup finished`. That match does not call a model.
 
@@ -275,7 +281,7 @@ The Scripts menu can create a script, run one, list them, install the included s
 
 ## Folder context for one turn
 
-Some tasks need the text of one folder. AgentX chooses that folder for the current turn, reads only the files inside it, and adds a short excerpt to the prompt that answers the task. The excerpt is dropped when the turn ends. It is not written to the config, a cache, or the session.
+Some tasks need the text of one folder. AgentX chooses that folder for the current turn, reads only the files inside it, and adds a short excerpt to the prompt that answers the task. The excerpt is dropped when the turn ends. It is not written to the config, a cache, `chat.db`, or the session.
 
 The folder is chosen in this order, and the search stops at the first hit:
 
@@ -295,7 +301,7 @@ At most 12 files are included. Each file contributes at most 8 KB. The whole exc
 The orchestrator does not answer you. It splits the task so a larger model only sees what a routine cannot finish.
 
 1. If the whole message is already a routine, no model is spent on routing. `run script NAME` runs that saved file. `create a script called NAME` stores a starter file. `list scripts` prints what is saved. A bare `http(s)` URL, or a request that only asks for a summary, goes to `summarize_url`. Define, translate, rewrite, and a short "what is" go to `quick_answer`, in English or Portuguese. A request that clearly names one saved script goes to `run_script`. These paths do not start DroidMCP. A condition or a refusal, such as `but`, `if`, `not`, or `don't`, does not run or save a script. On scope `all` or `main`, that ambiguous request is not sent to the remote key by a weak rule. If two scripts match equally, AgentX lists the names instead of guessing.
-2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Before that call, BM25 keeps about five saved scripts whose words match the request, plus any MCP tool names that also match. The rest stay out of the prompt. The analysis prompt also includes a few line-format examples (`sub summarize_url`, `sub run_script`, `main`) so a small local model can copy the shape. Extra prose and Markdown fences around a JSON list are ignored. The analysis may name one of those ids. It cannot invent an id. Routines run first. A later step receives the previous step output, so `summarize this page and email me the summary` can fetch the page and then run the email script with that text. A JSON list of those steps is also accepted. This analysis is the only place that can add a DroidMCP step, and only for a name listed in `mcp.tools` while the client is on. The main agent, if needed, is last and receives the routine output and the tool text instead of redoing the fetch, the summary, or the tool call.
+2. A mixed or open task gets one short analysis, at most 80 tokens and three steps. Before that call, BM25 keeps about five saved scripts whose words match the request, plus any MCP tool names that also match. The rest stay out of the prompt. The analysis prompt also includes a few line-format examples (`sub summarize_url`, `sub run_script`, `main`) so a small local model can copy the shape. Extra prose and Markdown fences around a JSON list are ignored. The analysis may name one of those ids. It cannot invent an id. A `TOOL` line from the main agent is parsed the same way: only `fetch_article`, `summarize_url`, and `run_script`, only an http(s) URL with no password, and only an installed script id. The tool result goes back as a JSON object with `tool`, `ok`, and `text`. An invalid `TOOL` line is not treated as the answer. Routines run first. A later step receives the previous step output, so `summarize this page and email me the summary` can fetch the page and then run the email script with that text. A JSON list of those steps is also accepted. This analysis is the only place that can add a DroidMCP step, and only for a name listed in `mcp.tools` while the client is on. The main agent, if needed, is last and receives the routine output and the tool text instead of redoing the fetch, the summary, or the tool call.
 3. With scope `orchestrator` or `all`, that analysis uses your remote key. With `local` or `main`, it uses the local model. If the orchestrator has no model, keyword rules choose the path. Another key is not spent just to decide.
 
 `/engineer` followed by the task skips analysis and sends the whole task to the main agent.

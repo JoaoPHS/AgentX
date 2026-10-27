@@ -77,6 +77,7 @@ def test_missing_file_uses_defaults(tmp_path):
     assert config.openrouter.max_tokens == 1024
     assert config.anthropic.max_tokens == 1024
     assert config.openai.max_tokens == 1024
+    assert config.save_chat is False
 
 
 def test_init_writes_template_without_secrets(tmp_path):
@@ -86,6 +87,7 @@ def test_init_writes_template_without_secrets(tmp_path):
     assert 'remote_scope = "local"' in text
     assert 'provider = "llama"' in text
     assert "max_tokens = 1024" in text
+    assert "save_chat = false" in text
     assert "api_key =" not in text
     assert SECRET not in text
     if os.name == "posix":

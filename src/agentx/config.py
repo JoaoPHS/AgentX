@@ -83,6 +83,7 @@ index_url = ""
 
 [preferences]
 language = "en"
+save_chat = false
 
 [context]
 dir = ""
@@ -209,6 +210,7 @@ class AppConfig:
     scripts: ScriptSettings = field(default_factory=ScriptSettings)
     limits: LimitSettings = field(default_factory=LimitSettings)
     language: str = "en"
+    save_chat: bool = False
     context: ContextSettings = field(default_factory=ContextSettings)
     mcp: McpSettings = field(default_factory=McpSettings)
     path: Path | None = None
@@ -341,6 +343,7 @@ def _apply(config: AppConfig, raw: dict) -> None:
         if chosen is None:
             raise AgentXError("Unknown language. Use en, pt, or pt-BR.")
         config.language = chosen
+    config.save_chat = _bool(preferences, "save_chat", config.save_chat)
 
     context = _table(raw, "context")
     config.context.dir = _str(context, "dir", config.context.dir).strip()
@@ -546,7 +549,7 @@ def answer_instruction(language: str) -> str:
     return "Answer in English."
 
 
-def save_config_values(config: AppConfig, sections: dict[str, dict[str, str]]) -> None:
+def save_config_values(config: AppConfig, sections: dict[str, dict[str, str | bool]]) -> None:
     """Update selected TOML keys. Environment variables still override keys afterwards."""
     if config.path is not None:
         try:
@@ -577,7 +580,10 @@ def save_config_values(config: AppConfig, sections: dict[str, dict[str, str]]) -
         config.local.base_url = local_values["base_url"].rstrip("/")
     language = sections.get("preferences", {}).get("language")
     if language is not None:
-        config.language = language
+        config.language = str(language)
+    save_chat = sections.get("preferences", {}).get("save_chat")
+    if isinstance(save_chat, bool):
+        config.save_chat = save_chat
     context_dir = sections.get("context", {}).get("dir")
     if context_dir is not None:
         config.context.dir = context_dir
@@ -603,7 +609,7 @@ def _write_private(path: Path, text: str) -> None:
         os.chmod(path, 0o600)
 
 
-def _patch_toml(text: str, sections: dict[str, dict[str, str]]) -> str:
+def _patch_toml(text: str, sections: dict[str, dict[str, str | bool]]) -> str:
     pending = {name: dict(values) for name, values in sections.items() if values}
     current: str | None = None
     output: list[str] = []
@@ -612,7 +618,7 @@ def _patch_toml(text: str, sections: dict[str, dict[str, str]]) -> str:
         if current is None or current not in pending:
             return
         for key, value in pending.pop(current).items():
-            output.append(f"{key} = {_toml_string(value)}")
+            output.append(f"{key} = {_toml_atom(value)}")
 
     for line in text.splitlines():
         header = re.fullmatch(r"\s*\[([A-Za-z0-9_-]+)\]\s*", line)
@@ -627,7 +633,7 @@ def _patch_toml(text: str, sections: dict[str, dict[str, str]]) -> str:
                 key = matched.group(2)
                 if key in pending[current]:
                     value = pending[current].pop(key)
-                    output.append(f"{matched.group(1)}{key} = {_toml_string(value)}")
+                    output.append(f"{matched.group(1)}{key} = {_toml_atom(value)}")
                     if not pending[current]:
                         pending.pop(current, None)
                     continue
@@ -640,11 +646,17 @@ def _patch_toml(text: str, sections: dict[str, dict[str, str]]) -> str:
             output.append("")
         output.append(f"[{name}]")
         for key, value in values.items():
-            output.append(f"{key} = {_toml_string(value)}")
+            output.append(f"{key} = {_toml_atom(value)}")
     rendered = "\n".join(output)
     if not rendered.endswith("\n"):
         rendered += "\n"
     return rendered
+
+
+def _toml_atom(value: str | bool) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return _toml_string(value)
 
 
 def _toml_string(value: str) -> str:

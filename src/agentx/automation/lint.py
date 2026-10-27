@@ -59,7 +59,9 @@ _NET_MODULES = {
     "urllib.parse",
     "aiohttp",
 }
-_FILE_WRITE = {"write_text", "write_bytes", "open", "replace", "unlink", "rmtree", "remove"}
+_FILE_WRITE = {"write_text", "write_bytes", "open", "replace"}
+_DESTROY = {"unlink", "rmtree", "remove", "removedirs", "rmdir"}
+ALLOWED_PERMISSIONS = frozenset({"process", "network", "files", "home"})
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,21 @@ def is_blocked(findings: tuple[Finding, ...] | list[Finding]) -> bool:
     return any(item.level == "block" for item in findings)
 
 
+def required_permissions(findings: tuple[Finding, ...] | list[Finding]) -> frozenset[str]:
+    needed: set[str] = set()
+    for item in findings:
+        message = item.message
+        if "other processes" in message or "shell command" in message:
+            needed.add("process")
+        if "network" in message or "HTTP" in message:
+            needed.add("network")
+        if "home directory" in message:
+            needed.add("home")
+        if "writes a file" in message or "walks outside" in message:
+            needed.add("files")
+    return frozenset(needed)
+
+
 def _scan_string(value: str, add) -> None:
     if _CONFIG_MARK.search(value):
         add("block", "The script reads or writes ~/.config/agentx or config.toml.")
@@ -159,6 +176,8 @@ def _scan_call(node: ast.Call, add) -> None:
             add("block", "The script runs a shell command.")
     if short in {"expanduser", "home"} or name.endswith(".home"):
         add("warn", "The script reads the home directory.")
+    if short in _DESTROY:
+        add("block", "The script can delete files.")
     if short in _FILE_WRITE:
         for arg in list(node.args) + [kw.value for kw in node.keywords]:
             joined = _joined_path(arg) if not isinstance(arg, ast.Constant) else ""
