@@ -198,14 +198,22 @@ def _save_mcp(config_path: Path, wrapper: Path) -> None:
         raise AgentXError("Command tools are off.")
 
 
-def _install_helpers(config_path: Path) -> None:
-    config = load_config(config_path)
-    directory = scripts_dir(config)
+def write_startup_scripts(directory: Path) -> list[str]:
+    """Replace the three setup scripts so a later init does not keep a stale copy."""
+    written: list[str] = []
+    directory.mkdir(parents=True, exist_ok=True)
     for script_id, text in _helpers():
         destination = directory / f"{script_id}.py"
         if destination.exists():
-            continue
+            destination.unlink()
         install_text(directory, f"{script_id}.py", text)
+        written.append(script_id)
+    return written
+
+
+def _install_helpers(config_path: Path) -> None:
+    config = load_config(config_path)
+    write_startup_scripts(scripts_dir(config))
 
 
 def _helpers() -> tuple[tuple[str, str], ...]:
@@ -239,6 +247,7 @@ def _helper(script_id: str, description: str, keyword: str, patterns: str, funct
 
 keywords: {keyword}
 patterns: {patterns}
+interactive: yes
 """
 import sys
 

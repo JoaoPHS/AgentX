@@ -24,7 +24,7 @@ def run_script(
     if chosen is None:
         return t(f"Unknown script: {script_id}.")
     command = [sys.executable, str(chosen.path), task]
-    launch = runner or _default_runner
+    launch = runner or (_attached_runner if chosen.interactive else _default_runner)
     try:
         completed = launch(
             command,
@@ -40,7 +40,21 @@ def run_script(
     if getattr(completed, "returncode", 1) != 0:
         detail = stderr or stdout or t("The script failed.")
         return detail
+    if chosen.interactive:
+        return stdout or t("The script finished.")
     return stdout or t("The script finished with no output.")
+
+
+def _attached_runner(command: list[str], *, cwd: str, timeout: float):
+    """Leave the terminal attached so a setup script can ask before it changes anything."""
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        timeout=timeout,
+        shell=False,
+        check=False,
+        env=_script_env(),
+    )
 
 
 def _default_runner(command: list[str], *, cwd: str, timeout: float):

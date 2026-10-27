@@ -31,6 +31,10 @@ _PT: dict[str, str] = {
     "Included scripts are ready in {directory}. The set has {count} scripts.": (
         "Os scripts inclusos estao prontos em {directory}. O conjunto tem {count} scripts."
     ),
+    "DroidMCP setup scripts are ready: download droidmcp, configure droidmcp, droidmcp status.": (
+        "Os scripts de preparacao do DroidMCP estao prontos: download droidmcp, configure droidmcp, droidmcp status."
+    ),
+    "The script finished.": "O script terminou.",
     "Set up DroidMCP sensors? Location, shell, SMS, contacts, and GitHub stay off. [y/N] ": (
         "Configurar os sensores do DroidMCP? Localizacao, shell, SMS, contatos e GitHub ficam desligados. [s/N] "
     ),

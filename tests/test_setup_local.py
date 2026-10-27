@@ -161,10 +161,53 @@ def test_termux_terminal_stores_the_scripts_before_asking(tmp_path, monkeypatch)
     config = tmp_path / "config.toml"
     init_config(config)
     assert prepare_local_model(config) == 0
-    assert len(list((tmp_path / "scripts").glob("*.py"))) == 50
+    assert len(list((tmp_path / "scripts").glob("*.py"))) == 53
+    assert (tmp_path / "scripts" / "droidmcp_download.py").is_file()
+    assert (tmp_path / "scripts" / "droidmcp_configure.py").is_file()
+    assert (tmp_path / "scripts" / "droidmcp_status.py").is_file()
     assert len(prompts) == 1
     assert "Qwen" in prompts[0]
     assert load_config(config).mcp.enabled is False
+
+
+def test_termux_home_installs_setup_scripts_without_a_tty(tmp_path, monkeypatch):
+    monkeypatch.delenv("PREFIX", raising=False)
+    monkeypatch.delenv("TERMUX_VERSION", raising=False)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+    monkeypatch.setattr(
+        "agentx.setup_local.Path.home",
+        lambda: Path("/data/data/com.termux/files/home"),
+    )
+    prompts: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "n")
+    config = tmp_path / "config.toml"
+    init_config(config)
+    assert prepare_local_model(config) == 0
+    assert prompts and "Qwen" in prompts[0]
+    from agentx.automation.catalog import choose_script, load_catalog
+    from agentx.orchestrator import Step, build_plan
+
+    scripts = load_catalog(tmp_path / "scripts")
+    assert choose_script("baixar droidmcp", scripts).id == "droidmcp_download"
+    assert choose_script("configurar droidmcp", scripts).id == "droidmcp_configure"
+    assert choose_script("droidmcp status", scripts).id == "droidmcp_status"
+    assert next(script for script in scripts if script.id == "droidmcp_download").interactive is True
+
+    def explode(_text: str) -> str:
+        raise AssertionError("the model must not run a setup script")
+
+    steps, called = build_plan(
+        "baixar droidmcp",
+        force_main=False,
+        scope="local",
+        local_ready=True,
+        remote_ready=True,
+        analyze=explode,
+        scripts=scripts,
+    )
+    assert called is False
+    assert steps == [Step("run_script", "baixar droidmcp", "", "droidmcp_download")]
 
 
 def test_droidmcp_is_asked_only_after_the_local_model(tmp_path, monkeypatch):

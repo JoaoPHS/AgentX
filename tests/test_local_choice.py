@@ -1,6 +1,6 @@
 import sys
 
-from agentx.cli import choose_local_engine, main
+from agentx.cli import build_runtime, choose_local_engine, main
 from agentx.config import init_config, load_config
 from agentx.i18n import set_language
 
@@ -77,3 +77,11 @@ def test_other_commands_do_not_ask(tmp_path, monkeypatch):
     monkeypatch.setattr("agentx.cli.choose_local_engine", boom)
     assert main(["doctor"]) == 1
     assert load_config(path).local.provider == "llama"
+
+
+def test_starting_agentx_can_build_the_runtime(tmp_path, monkeypatch):
+    path = tmp_path / "config.toml"
+    init_config(path)
+    monkeypatch.setenv("MULTIAGENTX_CONFIG", str(path))
+    runtime = build_runtime(load_config())
+    assert runtime.session.scope_name(runtime.config) == "local"

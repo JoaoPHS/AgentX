@@ -22,6 +22,7 @@ from agentx.errors import AgentXError
 from agentx.i18n import current_language, set_language, t, tr
 from agentx.llm.local import LocalServer
 from agentx.llm.remote import RemoteClient
+from agentx.llm.router import Router, Session
 from agentx.mcp.client import McpSession
 from agentx.automation.catalog import (
     add_script,
@@ -275,6 +276,13 @@ def _shell_arg(value: str) -> str:
     if value and not any(char in value for char in ' \t"\'$'):
         return value
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _isatty(stream) -> bool:
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, ValueError, OSError):
+        return False
 
 
 def _interactive() -> bool:
@@ -653,7 +661,8 @@ def run_line(runtime: Runtime, line: str) -> str:
         print(action[1])
         return "ok"
     streamed = ""
-    thinking = Thinking(sys.stderr) if sys.stderr.isatty() else None
+    stream = sys.stderr if _isatty(sys.stderr) else sys.stdout if _isatty(sys.stdout) else None
+    thinking = Thinking(stream) if stream is not None else None
 
     def on_token(token: str) -> None:
         nonlocal streamed

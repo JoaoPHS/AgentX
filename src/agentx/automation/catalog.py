@@ -14,6 +14,7 @@ from agentx.errors import AgentXError
 _ID = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _KEYWORDS = re.compile(r"^keywords:\s*(.*)$", re.IGNORECASE)
 _PATTERNS = re.compile(r"^patterns:\s*(.*)$", re.IGNORECASE)
+_INTERACTIVE = re.compile(r"^interactive:\s*yes\s*$", re.IGNORECASE)
 _REGEX_MARK = re.compile(r"[()\[\]|+*?\\]")
 _FILLER = frozenset(
     {
@@ -112,6 +113,7 @@ class ScriptInfo:
     description: str
     keywords: tuple[str, ...]
     patterns: tuple[str, ...] = ()
+    interactive: bool = False
 
 
 def is_script_id(value: str) -> bool:
@@ -289,6 +291,7 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
     description_lines: list[str] = []
     keywords: list[str] = []
     patterns: list[str] = []
+    interactive = False
     for line in document.splitlines():
         stripped = line.strip()
         found = _KEYWORDS.match(stripped)
@@ -298,6 +301,9 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
         found = _PATTERNS.match(stripped)
         if found:
             patterns.extend(part.strip() for part in found.group(1).split(",") if part.strip())
+            continue
+        if _INTERACTIVE.match(stripped):
+            interactive = True
             continue
         if stripped:
             description_lines.append(stripped)
@@ -310,7 +316,7 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
             seen.add(token)
             folded.append(token)
     folded_patterns = tuple(_fold(pattern) for pattern in patterns if _fold(pattern))
-    return ScriptInfo(script_id, path, description, tuple(folded), folded_patterns)
+    return ScriptInfo(script_id, path, description, tuple(folded), folded_patterns, interactive)
 
 
 def _clean_description(description: str, script_id: str) -> str:

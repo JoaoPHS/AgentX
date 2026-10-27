@@ -54,12 +54,17 @@ Ele não inicia um segundo servidor enquanto esse estiver no ar.
 
 def is_termux() -> bool:
     prefix = os.environ.get("PREFIX", "").replace("\\", "/")
-    return "com.termux" in prefix
+    if "com.termux" in prefix:
+        return True
+    if os.environ.get("TERMUX_VERSION", "").strip():
+        return True
+    home = str(Path.home()).replace("\\", "/")
+    return "com.termux" in home
 
 
 def prepare_local_model(config_path: Path) -> int:
-    """Ask on a Termux terminal. A pipe or another system keeps the config as written."""
-    if not is_termux() or not sys.stdin.isatty():
+    """Ask on Termux. Another system keeps the config as written."""
+    if not is_termux():
         return 0
     _install_included_scripts(config_path)
     try:
@@ -89,12 +94,16 @@ def _install_included_scripts(config_path: Path) -> None:
     config = load_config(config_path)
     directory = scripts_dir(config)
     install_examples(directory)
+    from agentx.setup_droidmcp import write_startup_scripts
+
+    write_startup_scripts(directory)
     print(
         t("Included scripts are ready in {directory}. The set has {count} scripts.").format(
             directory=directory,
             count=INCLUDED_TOTAL,
         )
     )
+    print(t("DroidMCP setup scripts are ready: download droidmcp, configure droidmcp, droidmcp status."))
 
 
 def install_qwen(
