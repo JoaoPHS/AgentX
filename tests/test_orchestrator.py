@@ -4,6 +4,8 @@ from agentx.agents.subagents import summarize_url
 from agentx.config import LimitSettings
 from agentx.orchestrator import (
     AMBIGUOUS,
+    ANALYSIS_SHOTS,
+    _analysis_prompt,
     build_plan,
     execute_plan,
     parse_delegation,
@@ -173,7 +175,7 @@ def test_url_then_script_passes_the_summary_to_the_script():
 
 def test_quick_answer_is_not_chained_and_bad_analysis_is_rejected():
     assert parse_delegation("sub quick_answer define API\nmain do the rest") is None
-    assert parse_delegation("this is just prose\nmain does the work") is None
+    assert parse_delegation("this is just prose") is None
     long_plan = "\n".join(
         [
             "sub summarize_url https://example.com/a",
@@ -327,3 +329,43 @@ def steps_only():
     from agentx.orchestrator import Step
 
     return Step("main", brief="task")
+
+
+def test_analysis_prompt_includes_few_shot_line_examples():
+    from agentx.automation.catalog import ScriptInfo
+    from pathlib import Path
+
+    email = ScriptInfo("email", Path("email.py"), "Send mail", ("email",), ())
+    prompt = _analysis_prompt((email,), "en", ())
+    assert ANALYSIS_SHOTS in prompt
+    assert "sub quick_answer define API" in prompt
+    assert "sub summarize_url https://example.com/a" in prompt
+    assert "sub run_script email" in prompt
+    assert "main compare the two cache options" in prompt
+    assert "Copy the line shape from the examples." in prompt
+
+
+def test_parse_delegation_tolerates_prose_and_fences():
+    from agentx.automation.catalog import ScriptInfo
+    from pathlib import Path
+
+    email = ScriptInfo("email", Path("email.py"), "Send mail", ("email",), ())
+    prose = parse_delegation(
+        "Sure, here is the plan:\n"
+        "sub summarize_url https://example.com/a\n"
+        "sub run_script email\n",
+        scripts=(email,),
+    )
+    assert prose is not None
+    assert [step.kind for step in prose] == ["summarize_url", "run_script"]
+    fenced = parse_delegation(
+        "```json\n"
+        '[{"action":"main","arg":"compare the two cache options"}]\n'
+        "```"
+    )
+    assert fenced is not None
+    assert fenced[0].kind == "main"
+    assert fenced[0].brief == "compare the two cache options"
+    leftover = parse_delegation("Sure.\nmain compare the two cache options")
+    assert leftover is not None
+    assert leftover[0].kind == "main"

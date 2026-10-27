@@ -2,12 +2,15 @@ from agentx.config import GovernorSettings
 from agentx.resources.governor import (
     Battery,
     Governor,
+    LocalDecision,
+    cpu_warning,
     decide_local,
     memory_allows,
     parse_battery,
     parse_meminfo,
     read_battery,
     threads_for,
+    wait_for_heat,
 )
 
 
@@ -106,6 +109,8 @@ def test_hot_cpu_pauses_and_warm_cpu_uses_one_thread(tmp_path):
     )
     assert cool.threads == 2
     assert cool.reason is None
+    assert cool.warning is None
+    assert cool.paused is False
     warm = decide_local(
         "MemAvailable: 900000 kB\n",
         cpu_count=8,
@@ -120,6 +125,8 @@ def test_hot_cpu_pauses_and_warm_cpu_uses_one_thread(tmp_path):
     assert warm.threads == 1
     assert warm.context == 1024
     assert warm.reason is None
+    assert warm.paused is False
+    assert warm.warning == cpu_warning(70, paused=False)
     hot = decide_local(
         "MemAvailable: 900000 kB\n",
         cpu_count=8,
@@ -133,6 +140,9 @@ def test_hot_cpu_pauses_and_warm_cpu_uses_one_thread(tmp_path):
     )
     assert hot.reason
     assert "hot" in hot.reason
+    assert hot.paused is True
+    assert hot.warning == cpu_warning(85, paused=True)
+    assert hot.temperature_c == 85
 
     root = tmp_path / "thermal"
     cpu = root / "thermal_zone0"
@@ -170,3 +180,93 @@ def test_hot_cpu_pauses_and_warm_cpu_uses_one_thread(tmp_path):
     assert decision.reason
     assert governor.lock.acquire(blocking=False)
     governor.lock.release()
+
+
+def test_wait_for_heat_prints_and_retries_until_cool():
+    seen = []
+    calls = {"n": 0}
+
+    def assess():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return LocalDecision(
+                0,
+                0,
+                "The phone is too hot. Generation is paused until it cools down.",
+                warning=cpu_warning(85, paused=True),
+                paused=True,
+                temperature_c=85,
+            )
+        return LocalDecision(
+            1,
+            1024,
+            None,
+            warning=cpu_warning(72, paused=False),
+            temperature_c=72,
+        )
+
+    sleeps = []
+    ticks = [0.0]
+
+    def clock():
+        return ticks[0]
+
+    def sleeper(seconds):
+        sleeps.append(seconds)
+        ticks[0] += seconds
+
+    decision = wait_for_heat(
+        assess,
+        status=seen.append,
+        timeout=10,
+        poll=2,
+        sleeper=sleeper,
+        clock=clock,
+    )
+    assert decision.paused is False
+    assert decision.threads == 1
+    assert sleeps == [2]
+    assert seen == [
+        cpu_warning(85, paused=True),
+        cpu_warning(72, paused=False),
+    ]
+
+
+def test_cpu_warning_is_translated():
+    from agentx.i18n import set_language, t
+
+    set_language("pt-BR")
+    try:
+        assert t(cpu_warning(81, paused=True)) == (
+            "[AVISO] CPU a 81 C: pausando temporariamente para resfriamento."
+        )
+        assert t(cpu_warning(70, paused=False)) == (
+            "[AVISO] CPU a 70 C: usando uma thread até esfriar."
+        )
+    finally:
+        set_language("en")
+
+
+def test_wait_for_heat_times_out_while_hot():
+    seen = []
+
+    def assess():
+        return LocalDecision(
+            0,
+            0,
+            "The phone is too hot. Generation is paused until it cools down.",
+            warning=cpu_warning(90, paused=True),
+            paused=True,
+            temperature_c=90,
+        )
+
+    decision = wait_for_heat(
+        assess,
+        status=seen.append,
+        timeout=0,
+        poll=2,
+        sleeper=lambda _seconds: None,
+        clock=lambda: 0.0,
+    )
+    assert decision.paused is True
+    assert seen == [cpu_warning(90, paused=True)]

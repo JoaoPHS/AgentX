@@ -495,6 +495,14 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"^The Ollama model (.+) is not installed\. Pull it with: ollama pull (.+)$"),
         "O modelo Ollama {0} não está instalado. Baixe com: ollama pull {1}",
     ),
+    (
+        re.compile(r"^\[WARN\] CPU at (\d+) C: pausing until it cools\.$"),
+        "[AVISO] CPU a {0} C: pausando temporariamente para resfriamento.",
+    ),
+    (
+        re.compile(r"^\[WARN\] CPU at (\d+) C: using one thread until it cools\.$"),
+        "[AVISO] CPU a {0} C: usando uma thread até esfriar.",
+    ),
     (re.compile(r"^Unknown script: (.+)\.$"), "Script desconhecido: {0}."),
     (
         re.compile(r"^Unknown script (.+)\. The index has: (.+)\.$"),

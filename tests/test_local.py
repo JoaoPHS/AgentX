@@ -223,6 +223,30 @@ def test_ollama_complete_sends_the_model_name(monkeypatch):
     assert seen["remote"] is False
 
 
+def test_possible_ignores_paused_heat(tmp_path):
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"gguf")
+
+    class HotGovernor(StubGovernor):
+        def assess(self, *, default_context: int):
+            return LocalDecision(
+                0,
+                0,
+                "The phone is too hot. Generation is paused until it cools down.",
+                warning="[WARN] CPU at 85 C: pausing until it cools.",
+                paused=True,
+                temperature_c=85,
+            )
+
+    server = LocalServer(
+        LocalSettings(provider="llama", model_path=str(model), port=8080),
+        HotGovernor(),
+        popen=_boom_popen,
+        which=lambda _name: "llama-server",
+    )
+    assert server.possible() is None
+
+
 def test_scope_all_never_checks_ollama_or_gguf():
     class StrictLocal:
         def possible(self):

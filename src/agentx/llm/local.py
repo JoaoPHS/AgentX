@@ -98,7 +98,7 @@ class LocalServer:
         if not self._which(self.settings.binary):
             return "llama-server is not on PATH."
         decision = self.governor.assess(default_context=self.settings.context)
-        return decision.reason
+        return None if decision.paused else decision.reason
 
     def ensure_running(self) -> None:
         reason = self.possible()
@@ -107,6 +107,11 @@ class LocalServer:
         if self.settings.provider == "ollama":
             return
         decision = self.governor.assess(default_context=self.settings.context)
+        if decision.paused or decision.threads < 1:
+            raise AgentXError(
+                decision.reason
+                or "The phone is too hot. Generation is paused until it cools down."
+            )
         limits = (decision.threads, decision.context)
         with self._lock:
             if (
@@ -179,7 +184,7 @@ class LocalServer:
         if not self.settings.model:
             return "The Ollama model name is missing from the config."
         decision = self.governor.assess(default_context=self.settings.context)
-        if decision.reason:
+        if decision.reason and not decision.paused:
             return decision.reason
         names = self._ollama_model_names(base)
         if names is None:

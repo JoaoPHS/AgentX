@@ -166,6 +166,59 @@ def test_session_commands_do_not_persist_secrets():
     assert "/model" in apply_model_command("claude", session, config)
 
 
+def test_local_complete_waits_for_heat_and_prints_a_warning():
+    from agentx.resources.governor import LocalDecision, cpu_warning
+
+    class HeatGovernor:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.calls = 0
+
+        def wait_for_heat(self, *, default_context, status=None, timeout=60, **_kwargs):
+            self.calls += 1
+            warning = cpu_warning(85, paused=True)
+            if status is not None:
+                status(warning)
+            return LocalDecision(1, default_context, temperature_c=72)
+
+    router, local, _remote = _router("local")
+    router.governor = HeatGovernor()
+    seen = []
+    assert router.complete("main", [], status=seen.append) == "local"
+    assert router.governor.calls == 1
+    assert seen == [cpu_warning(85, paused=True)]
+    assert local.starts == 1
+
+
+def test_local_complete_raises_when_heat_wait_stays_paused():
+    from agentx.resources.governor import LocalDecision, cpu_warning
+
+    class StuckGovernor:
+        def __init__(self):
+            self.lock = threading.Lock()
+
+        def wait_for_heat(self, *, default_context, status=None, timeout=60, **_kwargs):
+            warning = cpu_warning(90, paused=True)
+            if status is not None:
+                status(warning)
+            return LocalDecision(
+                0,
+                0,
+                "The phone is too hot. Generation is paused until it cools down.",
+                warning=warning,
+                paused=True,
+                temperature_c=90,
+            )
+
+    router, local, _remote = _router("local")
+    router.governor = StuckGovernor()
+    seen = []
+    with pytest.raises(AgentXError, match="too hot"):
+        router.complete("main", [], status=seen.append)
+    assert seen == [cpu_warning(90, paused=True)]
+    assert local.starts == 0
+
+
 def test_server_command_stays_on_loopback():
     command = build_server_command(
         "llama-server",

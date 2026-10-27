@@ -6,10 +6,12 @@ import json
 import os
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from agentx.config import GovernorSettings
+from agentx.i18n import t
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,9 @@ class LocalDecision:
     threads: int
     context: int
     reason: str | None = None
+    warning: str | None = None
+    paused: bool = False
+    temperature_c: int | None = None
 
 
 class Governor:
@@ -61,6 +66,56 @@ class Governor:
             default_context=default_context,
         )
 
+    def wait_for_heat(
+        self,
+        *,
+        default_context: int,
+        status=None,
+        timeout: float = 60,
+        poll: float = 2,
+        sleeper=None,
+        clock=None,
+    ) -> LocalDecision:
+        return wait_for_heat(
+            lambda: self.assess(default_context=default_context),
+            status=status,
+            timeout=timeout,
+            poll=poll,
+            sleeper=sleeper,
+            clock=clock,
+        )
+
+
+def cpu_warning(temperature_c: int, *, paused: bool) -> str:
+    if paused:
+        return f"[WARN] CPU at {temperature_c} C: pausing until it cools."
+    return f"[WARN] CPU at {temperature_c} C: using one thread until it cools."
+
+
+def wait_for_heat(
+    assess,
+    *,
+    status=None,
+    timeout: float = 60,
+    poll: float = 2,
+    sleeper=None,
+    clock=None,
+) -> LocalDecision:
+    sleeper = time.sleep if sleeper is None else sleeper
+    clock = time.monotonic if clock is None else clock
+    deadline = clock() + max(0.0, timeout)
+    last_warning = None
+    while True:
+        decision = assess()
+        if decision.warning and decision.warning != last_warning and status is not None:
+            status(t(decision.warning))
+            last_warning = decision.warning
+        if not decision.paused:
+            return decision
+        if clock() >= deadline:
+            return decision
+        sleeper(max(0.1, poll))
+
 
 def decide_local(
     meminfo: str | None,
@@ -94,6 +149,9 @@ def decide_local(
             0,
             0,
             "The phone is too hot. Generation is paused until it cools down.",
+            warning=cpu_warning(temperature_c, paused=True),
+            paused=True,
+            temperature_c=temperature_c,
         )
     low_battery = bool(
         battery and battery.percent < low_battery_percent and not battery.charging
@@ -101,7 +159,14 @@ def decide_local(
     warm = temperature_c is not None and temperature_c >= warm_celsius
     threads = threads_for(cpu_count, max_threads, low_battery=low_battery, warm=warm)
     context = low_battery_context if low_battery or warm else default_context
-    return LocalDecision(threads, context, None)
+    warning = cpu_warning(temperature_c, paused=False) if warm else None
+    return LocalDecision(
+        threads,
+        context,
+        None,
+        warning=warning,
+        temperature_c=temperature_c,
+    )
 
 
 def parse_meminfo(text: str) -> int | None:

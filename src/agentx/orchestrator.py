@@ -84,7 +84,21 @@ ANALYSIS_SYSTEM = (
     "main short instruction at the end, at most one, only for what the routines cannot do. "
     "Routines first. "
     "A later step receives the previous step output. "
+    "Copy the line shape from the examples. "
     "A JSON list of the same steps is also accepted."
+)
+
+ANALYSIS_SHOTS = (
+    "Examples:\n"
+    "User: define API\n"
+    "sub quick_answer define API\n"
+    "User: https://example.com/a\n"
+    "sub summarize_url https://example.com/a\n"
+    "User: summarize https://example.com/a and email me the summary\n"
+    "sub summarize_url https://example.com/a\n"
+    "sub run_script email\n"
+    "User: compare the two cache options\n"
+    "main compare the two cache options"
 )
 
 _PLANNING = ("search", "compare", "plan", "code", "analyze", "analyse", "analise", "implement")
@@ -141,6 +155,7 @@ class Orchestrator:
         visible_scripts = select_scripts(message, installed)
         visible_tools = select_tools(message, mcp_tools)
         analysis = _analysis_prompt(visible_scripts, language, visible_tools)
+        self.router.status = status
 
         def analyze(text: str) -> str:
             return self.router.complete(
@@ -157,6 +172,7 @@ class Orchestrator:
                 max_tokens=self.config.orchestrator.max_tokens,
                 temperature=0,
                 timeout=self._timeout(),
+                status=status,
             )
 
         steps, _called = build_plan(
@@ -423,7 +439,7 @@ def parse_delegation(
     )
     if json_steps is not None:
         return json_steps
-    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    lines = _plan_lines(text)
     if not lines or len(lines) > max_delegations:
         return None
     steps: list[Step] = []
@@ -466,17 +482,47 @@ def parse_delegation(
     return steps
 
 
+def _plan_lines(text: str) -> list[str]:
+    kept: list[str] = []
+    for raw in text.strip().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("```"):
+            continue
+        if _is_plan_line(line):
+            kept.append(line)
+    return kept
+
+
+def _is_plan_line(line: str) -> bool:
+    return (
+        line.startswith("sub summarize_url ")
+        or line.startswith("sub quick_answer")
+        or line.startswith("sub run_script ")
+        or line.startswith("sub mcp ")
+        or line == "main"
+        or line.startswith("main ")
+    )
+
+
+def _extract_json_list(text: str):
+    start = text.find("[")
+    end = text.rfind("]")
+    if start < 0 or end <= start:
+        return None
+    try:
+        payload = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, list) else None
+
+
 def _parse_json_plan(
     text: str, *, max_delegations: int, mcp_tools, scripts
 ) -> list[Step] | None:
-    stripped = text.strip()
-    if not stripped.startswith("["):
+    payload = _extract_json_list(text)
+    if payload is None:
         return None
-    try:
-        payload = json.loads(stripped)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, list) or not payload or len(payload) > max_delegations:
+    if not payload or len(payload) > max_delegations:
         return None
     steps: list[Step] = []
     known = {script.id for script in scripts}
@@ -615,7 +661,7 @@ def execute_plan(
 
 def _analysis_prompt(scripts, language: str, mcp_tools) -> str:
     catalog = format_catalog(scripts)
-    prompt = f"{ANALYSIS_SYSTEM}\n{answer_instruction(language)}\n{catalog}"
+    prompt = f"{ANALYSIS_SYSTEM}\n{ANALYSIS_SHOTS}\n{answer_instruction(language)}\n{catalog}"
     if scripts:
         ids = ", ".join(script.id for script in scripts)
         prompt += f"\nAll script ids: {ids}"

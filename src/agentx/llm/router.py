@@ -83,6 +83,7 @@ class Router:
         temperature: float = 0.2,
         timeout: float = 180,
         on_token=None,
+        status=None,
     ) -> str:
         reason = self.block_reason(role)
         if reason:
@@ -95,6 +96,20 @@ class Router:
                     temperature=temperature,
                     timeout=timeout,
                     on_token=on_token,
+                )
+        notify = status if status is not None else getattr(self, "status", None)
+        waiter = getattr(self.governor, "wait_for_heat", None)
+        if callable(waiter):
+            context = getattr(getattr(self.local, "settings", None), "context", 1024)
+            decision = waiter(
+                default_context=context,
+                status=notify,
+                timeout=min(max(timeout, 0.0), 60.0),
+            )
+            if decision.paused:
+                raise AgentXError(
+                    decision.reason
+                    or "The phone is too hot. Generation is paused until it cools down."
                 )
         local_cap = 256 if max_tokens is None else max_tokens
         with self.governor.lock:
