@@ -97,6 +97,9 @@ tools = []
 root = ""
 idle_seconds = 120
 call_timeout_seconds = 15
+
+[droidnet]
+path = ""
 """
 
 
@@ -184,6 +187,11 @@ class McpSettings:
 
 
 @dataclass
+class DroidnetSettings:
+    path: str = ""
+
+
+@dataclass
 class LimitSettings:
     request_timeout_seconds: int = 180
     quick_max_tokens: int = 256
@@ -217,6 +225,7 @@ class AppConfig:
     save_chat: bool = False
     context: ContextSettings = field(default_factory=ContextSettings)
     mcp: McpSettings = field(default_factory=McpSettings)
+    droidnet: DroidnetSettings = field(default_factory=DroidnetSettings)
     path: Path | None = None
 
 
@@ -373,6 +382,9 @@ def _apply(config: AppConfig, raw: dict) -> None:
     config.mcp.call_timeout_seconds = _int(
         mcp, "call_timeout_seconds", config.mcp.call_timeout_seconds
     )
+
+    droidnet = _table(raw, "droidnet")
+    config.droidnet.path = _str(droidnet, "path", config.droidnet.path).strip()
 
     limits = _table(raw, "limits")
     for name in (

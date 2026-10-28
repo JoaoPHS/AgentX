@@ -32,6 +32,20 @@ def test_init_runs_termux_setup_first(tmp_path, monkeypatch, capsys):
     assert "dos2unix init.sh" not in out or "1. termux_setup" in out
 
 
+def test_init_fixes_the_starter_without_termux_or_dos2unix(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("PREFIX", raising=False)
+    monkeypatch.delenv("TERMUX_VERSION", raising=False)
+    config = tmp_path / "config.toml"
+    init_config(config)
+    assert prepare_termux(config, root=tmp_path) == 0
+    data = (tmp_path / STARTER_NAME).read_bytes()
+    assert b"\r" not in data
+    out = capsys.readouterr().out
+    assert "Fixing init.sh line endings." in out
+    assert "Making init.sh executable." in out
+    assert "Installing dos2unix" not in out
+
+
 def test_termux_setup_runs_the_install_steps(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PREFIX", "/data/data/com.termux/files/usr")
     (tmp_path / ".git").mkdir()

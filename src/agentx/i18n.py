@@ -100,6 +100,25 @@ _PT: dict[str, str] = {
     "Chat": "Conversa",
     "Scripts": "Scripts",
     "Hermes Bridge": "Ponte Hermes",
+    "DroidNet Sentinel": "DroidNet Sentinel",
+    "Saved reports": "Relatorios salvos",
+    "Scan this network": "Varrer esta rede",
+    "CVE notes": "Notas de CVE",
+    "ARP cut, deauth, and exploit lookup stay off.": (
+        "Corte ARP, deauth e busca de exploits ficam desligados."
+    ),
+    "DroidNet Sentinel is not configured. Set droidnet.path to a local clone.": (
+        "O DroidNet Sentinel nao esta configurado. Defina droidnet.path para um clone local."
+    ),
+    "DroidNet Sentinel: {path}": "DroidNet Sentinel: {path}",
+    "That DroidNet action stays off.": "Essa acao do DroidNet fica desligada.",
+    "DroidNet scan was not started.": "A varredura do DroidNet nao foi iniciada.",
+    "DroidNet Sentinel took too long.": "O DroidNet Sentinel demorou demais.",
+    "DroidNet Sentinel failed.": "O DroidNet Sentinel falhou.",
+    "DroidNet Sentinel finished.": "O DroidNet Sentinel terminou.",
+    "Scan the current local network with DroidNet Sentinel? ARP cut, deauth, and exploit lookup stay off. [y/N] ": (
+        "Varrer a rede local com o DroidNet Sentinel? Corte ARP, deauth e busca de exploits ficam desligados. [s/N] "
+    ),
     "One shot, then the process exits": "Uma vez, e o processo encerra",
     "Worker": "Operário",
     "Orchestrator": "Orquestrador",

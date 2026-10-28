@@ -74,6 +74,13 @@ GUIDES: tuple[tuple[str, str], ...] = (
         "AgentX is not an MCP server.",
     ),
     (
+        "DroidNet Sentinel",
+        "DroidNet Sentinel is a separate clone, not shipped inside AgentX. "
+        "The home menu can list its saved reports, run one network scan, or read CVE notes. "
+        "Set droidnet.path in the config, or clone the project to ~/DroidNet-Sentinel. "
+        "ARP cut, deauth, and exploit lookup stay off. A scan never passes --auto-cut.",
+    ),
+    (
         "Run locally",
         "Scope local keeps the task on this machine. "
         "The default provider is llama. Ollama is the other local choice. "
@@ -166,6 +173,13 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
         "Ele sobe por stdio so quando voce escolhe uma ferramenta permitida. "
         "Ele para antes de um modelo rodar, e para quando voce volta ao menu ou sai. "
         "Um binário ausente não interrompe o resto da tarefa. O AgentX não é um servidor MCP.",
+    ),
+    (
+        "DroidNet Sentinel",
+        "O DroidNet Sentinel e um clone separado, nao vem dentro do AgentX. "
+        "O menu inicial pode listar os relatorios salvos, fazer uma varredura da rede ou ler notas de CVE. "
+        "Defina droidnet.path na config, ou clone o projeto em ~/DroidNet-Sentinel. "
+        "Corte ARP, deauth e busca de exploits ficam desligados. A varredura nunca passa --auto-cut.",
     ),
     (
         "Rodar localmente",

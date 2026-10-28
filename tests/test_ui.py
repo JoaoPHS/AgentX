@@ -1,6 +1,15 @@
 import threading
 
-from agentx.cli import droidmcp_menu, hermes_menu, home, interpret, main, pick_saved_script, session_card
+from agentx.cli import (
+    droidmcp_menu,
+    droidnet_menu,
+    hermes_menu,
+    home,
+    interpret,
+    main,
+    pick_saved_script,
+    session_card,
+)
 from agentx.config import AppConfig, init_config
 from agentx.llm.router import Session
 from agentx.ui import (
@@ -76,6 +85,7 @@ def test_guide_pages_cover_scripts_and_configuration(capsys):
         "Scripts",
         "API key",
         "DroidMCP",
+        "DroidNet Sentinel",
         "Run locally",
         "llama-server",
         "Ollama",
@@ -160,6 +170,7 @@ def test_home_menu_lists_the_sections_and_q_leaves(capsys):
     assert "Scripts" in drawn
     assert "DroidMCP" in drawn
     assert "Hermes Bridge" in drawn
+    assert "DroidNet Sentinel" in drawn
     assert "Configuration" in drawn
     assert "Help guide" in drawn
     assert capsys.readouterr().out == ""
@@ -238,3 +249,26 @@ def test_droidmcp_menu_runs_battery_and_leaves_on_q():
     drawn = "".join(seen)
     assert "Battery" in drawn
     assert "Download and set up" in drawn
+
+
+def test_droidnet_menu_lists_saved_reports(monkeypatch):
+    from types import SimpleNamespace
+
+    from agentx.config import AppConfig
+
+    seen: list[str] = []
+
+    def launch(path, action, **_kwargs):
+        seen.append(f"{action}:{path}")
+        return "report.json"
+
+    monkeypatch.setattr("agentx.companions.run_droidnet", launch)
+    runtime = SimpleNamespace(config=AppConfig())
+    keys = iter(["2", "enter", "q"])
+    droidnet_menu(runtime, read_key_fn=lambda: next(keys), write=seen.append)
+    drawn = "".join(seen)
+    assert "reports:" in drawn
+    assert "Saved reports" in drawn
+    assert "report.json" in drawn
+    assert "--auto-cut" not in drawn
+

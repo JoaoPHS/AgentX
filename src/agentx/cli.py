@@ -349,6 +349,7 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
             Choice("voice", t("Speak a task")),
             Choice("scripts", t("Scripts")),
             Choice("hermes", t("Hermes Bridge")),
+            Choice("droidnet", t("DroidNet Sentinel")),
             Choice("droidmcp", "DroidMCP"),
             Choice("config", t("Configuration")),
             Choice("help", t("Help guide")),
@@ -375,6 +376,9 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
         elif picked == "hermes":
             if runtime is not None:
                 hermes_menu(runtime, read_key_fn=read_key_fn, write=write)
+        elif picked == "droidnet":
+            if runtime is not None:
+                droidnet_menu(runtime, read_key_fn=read_key_fn, write=write)
         elif picked == "droidmcp":
             if runtime is not None:
                 droidmcp_menu(runtime, read_key_fn=read_key_fn, write=write)
@@ -479,6 +483,48 @@ _DROIDMCP_TOOLS = (
     ("get_volume", "Volume"),
     ("list_sensors", "Sensor list"),
 )
+
+
+def droidnet_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    """Arrow menu for a local DroidNet clone. ARP cut, deauth, and exploit lookup stay off."""
+    while True:
+        set_language(runtime.config.language)
+        picked = choose(
+            "DroidNet",
+            t("ARP cut, deauth, and exploit lookup stay off."),
+            [
+                Choice("status", t("Status")),
+                Choice("reports", t("Saved reports")),
+                Choice("scan", t("Scan this network")),
+                Choice("cve", t("CVE notes")),
+                Choice("back", t("Back")),
+            ],
+            read_key_fn=read_key_fn or _bound_read_key,
+            write=write,
+        )
+        if picked in {None, "back"}:
+            return
+        if picked == "status":
+            text = _droidnet_status(runtime.config)
+        else:
+            text = _run_droidnet_from_menu(runtime.config, picked)
+        _pause(text, write=write, read_key_fn=read_key_fn)
+
+
+def _droidnet_status(config: AppConfig) -> str:
+    from agentx.companions import droidnet_path_from_config, droidnet_status
+
+    return droidnet_status(droidnet_path_from_config(config))
+
+
+def _run_droidnet_from_menu(config: AppConfig, action: str) -> str:
+    from agentx.companions import droidnet_path_from_config, run_droidnet
+    from agentx.errors import AgentXError
+
+    try:
+        return run_droidnet(droidnet_path_from_config(config), action)
+    except AgentXError as exc:
+        return str(exc)
 
 
 def hermes_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:

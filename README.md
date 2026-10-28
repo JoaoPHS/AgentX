@@ -128,9 +128,9 @@ cd AgentX
 python -m agentx init
 ```
 
-`agentx init` starts with `termux_setup`. That first process installs `dos2unix` and `termux-api`, updates the clone, rewrites `init.sh` with Unix line endings, marks it executable, asks Termux for storage access when that command exists, and installs this folder so `agentx` is this clone. The Termux:API Android app still has to come from F-Droid. The next processes are `included_scripts`, `local_model`, and `droidmcp`.
+`agentx init` starts with `termux_setup`. That first process rewrites `init.sh` with Unix line endings and marks it executable without a separate `dos2unix` install. On Termux it also installs `dos2unix` and `termux-api`, updates the clone, asks Termux for storage access when that command exists, and installs this folder so `agentx` is this clone. The Termux:API Android app still has to come from F-Droid. The next processes are `included_scripts`, `local_model`, and `droidmcp`.
 
-If `agentx` on PATH is still an older install, run `python -m agentx init` from this folder, or `./init.sh` after `dos2unix init.sh` and `chmod +x init.sh`. After that, start the app with `agentx`.
+If `agentx` on PATH is still an older install, run `python -m agentx init` from this folder. `init.sh` is stored executable, so `./init.sh` starts the same setup. After that, start the app with `agentx`.
 
 If a script later needs the phone storage or the network, run `termux-setup-storage` once.
 
@@ -142,6 +142,26 @@ If a script later needs the phone storage or the network, run `termux-setup-stor
 4. Press `q` to go back. AgentX stops the DroidMCP process when you leave that menu.
 
 You do not type a tool name. `agentx mcp tools` still lists the names from the command line.
+
+### DroidNet menu
+
+DroidNet Sentinel stays a separate clone. AgentX does not vendor it.
+
+1. Clone [DroidNet-Sentinel](https://github.com/kahz12/DroidNet-Sentinel) and set the path:
+
+```toml
+[droidnet]
+path = "~/DroidNet-Sentinel"
+```
+
+If `~/DroidNet-Sentinel/main.py` already exists, the menu uses that folder when `path` is empty.
+
+2. Start AgentX and choose **DroidNet Sentinel**.
+3. Choose **Saved reports**, **Scan this network**, or **CVE notes**.
+4. A scan asks first, then runs `python main.py scan`. It does not pass `--auto-cut`.
+5. Press `q` to go back.
+
+ARP cut, deauth, and exploit lookup are not on this menu.
 
 ### Hermes menu
 
@@ -358,7 +378,7 @@ This fallback is only for `summarize_url`. It is not a graphical browser, and ot
 
 ## Chat
 
-With no arguments in a terminal, `agentx` first asks about llama-server, then opens a cyan home menu. Arrow keys move, Enter selects, and `q` goes back. The pages are Chat, Speak a task, Scripts, Hermes Bridge, DroidMCP, Configuration, Help guide, and Check config. Speak a task, `agentx voice`, and `/voice` use `termux-speech-to-text` from Termux:API, then send the transcript to the orchestrator. The Help guide explains what AgentX is, what it is for, commands, scripts, API keys, DroidMCP, running locally, llama-server, and `ollama serve`. `agentx help` prints the same pages. While a task is running, the terminal shows `thinking`, then `thinking.`, `thinking..`, and `thinking...` in a loop until the answer starts. `/menu` returns to the home menu. Outside a terminal, `agentx` keeps the plain `>` prompt and does not ask about the engine.
+With no arguments in a terminal, `agentx` first asks about llama-server, then opens a cyan home menu. Arrow keys move, Enter selects, and `q` goes back. The pages are Chat, Speak a task, Scripts, Hermes Bridge, DroidNet Sentinel, DroidMCP, Configuration, Help guide, and Check config. Speak a task, `agentx voice`, and `/voice` use `termux-speech-to-text` from Termux:API, then send the transcript to the orchestrator. The Help guide explains what AgentX is, what it is for, commands, scripts, API keys, DroidMCP, DroidNet Sentinel, running locally, llama-server, and `ollama serve`. `agentx help` prints the same pages. While a task is running, the terminal shows `thinking`, then `thinking.`, `thinking..`, and `thinking...` in a loop until the answer starts. `/menu` returns to the home menu. Outside a terminal, `agentx` keeps the plain `>` prompt and does not ask about the engine.
 
 The saved language starts as English. `/language pt` or `/language pt-BR` switches the menus, the help guide, errors, and the model answers to Brazilian Portuguese. Typed commands such as `/model` stay as written.
 

@@ -76,20 +76,28 @@ def prepare_termux(
     folder = Path(root) if root is not None else Path.cwd()
     starter = write_starter(folder)
     place_starter(config_path)
+    on_termux = _is_termux()
     print(t("1. termux_setup"))
     print(tr("Termux starter written to {path}.", path=starter))
-    if not _is_termux():
+    print(t("Fixing init.sh line endings."))
+    _normalize_newlines(starter)
+    print(t("Making init.sh executable."))
+    _mark_executable(starter)
+    _git_executable(starter)
+    if not on_termux:
         return 0
     runner = run or _run
     finder = which or _which
-    if finder("pkg"):
+    pkg = finder("pkg")
+    if pkg:
         print(t("Installing dos2unix and Termux:API."))
         runner(["pkg", "install", "-y", "dos2unix", "termux-api"])
         print(t("Install the Termux:API app from F-Droid if Android asks for it."))
     if finder("git") and (folder / ".git").is_dir():
         print(t("Updating the clone."))
         runner(["git", "pull"], cwd=folder)
-    if finder("dos2unix"):
+    dos2unix = finder("dos2unix")
+    if dos2unix:
         print(t("Fixing init.sh line endings."))
         runner(["dos2unix", str(starter)])
         write_starter(folder)
@@ -152,6 +160,57 @@ def _termux_script() -> str:
         '    task = sys.argv[1] if len(sys.argv) > 1 else ""\n'
         "    raise SystemExit(script_termux_setup(task))\n"
     )
+
+
+def _normalize_newlines(path: Path) -> tuple[int, int]:
+    """Do the dos2unix job in process. agentx init must not wait for that package."""
+    data = path.read_bytes()
+    before = data.count(b"\r")
+    cleaned = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    if cleaned != data:
+        path.write_bytes(cleaned)
+    return before, cleaned.count(b"\r")
+
+
+def _mark_executable(path: Path) -> int:
+    try:
+        path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    except OSError:
+        pass
+    return path.stat().st_mode & 0o777
+
+
+def _git_executable(path: Path) -> str:
+    folder = path.parent
+    if not (folder / ".git").is_dir() or _which("git") is None:
+        return ""
+    listed = subprocess.run(
+        ["git", "ls-files", "-s", "--", path.name],
+        cwd=folder,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    parts = listed.stdout.split()
+    if len(parts) < 2:
+        return ""
+    blob = parts[1]
+    hashed = subprocess.run(
+        ["git", "hash-object", "--", path.name],
+        cwd=folder,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if hashed.stdout.strip() == blob:
+        subprocess.run(
+            ["git", "update-index", "--cacheinfo", f"100755,{blob},{path.name}"],
+            cwd=folder,
+            check=False,
+            capture_output=True,
+        )
+        return "100755"
+    return parts[0]
 
 
 def _is_termux() -> bool:
