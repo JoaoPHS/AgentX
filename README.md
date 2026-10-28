@@ -143,6 +143,15 @@ If a script later needs the phone storage or the network, run `termux-setup-stor
 
 You do not type a tool name. `agentx mcp tools` still lists the names from the command line.
 
+### Hermes menu
+
+1. Start AgentX and choose **Hermes Bridge**.
+2. Choose **Worker** for a direct task, or **Orchestrator** for a JSON list of steps.
+3. Type the task and press Enter. AgentX runs `hermes -z` once, prints the reply, and the process exits.
+4. Press `q` to go back.
+
+`hermes` must be on `PATH`. The menu does not install it.
+
 Python 3.11 or newer. The only required dependency is `httpx`. There is no LangChain and no PyTorch. Script-rendered pages can use the optional `browser` extra. That extra is not part of the base install.
 
 ### Build llama.cpp yourself
@@ -349,7 +358,7 @@ This fallback is only for `summarize_url`. It is not a graphical browser, and ot
 
 ## Chat
 
-With no arguments in a terminal, `agentx` first asks about llama-server, then opens a cyan home menu. Arrow keys move, Enter selects, and `q` goes back. The pages are Chat, Speak a task, Scripts, Configuration, Help guide, and Check config. Speak a task, `agentx voice`, and `/voice` use `termux-speech-to-text` from Termux:API, then send the transcript to the orchestrator. The Help guide explains what AgentX is, what it is for, commands, scripts, API keys, DroidMCP, running locally, llama-server, and `ollama serve`. `agentx help` prints the same pages. While a task is running, the terminal shows `thinking`, then `thinking.`, `thinking..`, and `thinking...` in a loop until the answer starts. `/menu` returns to the home menu. Outside a terminal, `agentx` keeps the plain `>` prompt and does not ask about the engine.
+With no arguments in a terminal, `agentx` first asks about llama-server, then opens a cyan home menu. Arrow keys move, Enter selects, and `q` goes back. The pages are Chat, Speak a task, Scripts, Hermes Bridge, DroidMCP, Configuration, Help guide, and Check config. Speak a task, `agentx voice`, and `/voice` use `termux-speech-to-text` from Termux:API, then send the transcript to the orchestrator. The Help guide explains what AgentX is, what it is for, commands, scripts, API keys, DroidMCP, running locally, llama-server, and `ollama serve`. `agentx help` prints the same pages. While a task is running, the terminal shows `thinking`, then `thinking.`, `thinking..`, and `thinking...` in a loop until the answer starts. `/menu` returns to the home menu. Outside a terminal, `agentx` keeps the plain `>` prompt and does not ask about the engine.
 
 The saved language starts as English. `/language pt` or `/language pt-BR` switches the menus, the help guide, errors, and the model answers to Brazilian Portuguese. Typed commands such as `/model` stay as written.
 

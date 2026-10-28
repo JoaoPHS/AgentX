@@ -40,13 +40,14 @@ GUIDES: tuple[tuple[str, str], ...] = (
         "Scripts",
         "Python scripts live in ~/.config/agentx/scripts. "
         "agentx script list shows them. script new NAME saves a starter file. "
-        "script run NAME runs that file. script examples installs the 50 included scripts. "
+        "script run NAME runs that file. script examples installs the 51 included scripts. "
         "They cover small checks and short text tasks. "
         "script add FILE copies one file. "
         "script install NAME prints the URL, the SHA-256, and a static safety check, then asks before it writes. "
         "The hash checks the file. It does not mean the script is safe. "
         "A script that reads ~/.config/agentx or runs eval is blocked. "
-        "A matching phrase runs the script with no model call.",
+        "A matching phrase runs the script with no model call. "
+        "The home menu Hermes Bridge runs hermes once as a worker or an orchestrator, then exits.",
     ),
     (
         "API key",
@@ -134,13 +135,14 @@ GUIDES_PT: tuple[tuple[str, str], ...] = (
         "Scripts",
         "Os scripts Python ficam em ~/.config/agentx/scripts. "
         "agentx script list mostra os salvos. script new NOME salva um arquivo inicial. "
-        "script run NOME executa esse arquivo. script examples instala os 50 scripts inclusos. "
+        "script run NOME executa esse arquivo. script examples instala os 51 scripts inclusos. "
         "Eles cobrem consultas curtas e tarefas de texto. "
         "script add ARQUIVO copia um arquivo. "
         "script install NOME mostra a URL, o SHA-256 e uma checagem estática, depois pergunta antes de gravar. "
         "O hash confere o arquivo. Não significa que o script é seguro. "
         "Um script que lê ~/.config/agentx ou chama eval é bloqueado. "
-        "Uma frase que combina roda o script sem chamar o modelo.",
+        "Uma frase que combina roda o script sem chamar o modelo. "
+        "O item Ponte Hermes no menu inicial roda o hermes uma vez, como operário ou orquestrador, e encerra.",
     ),
     (
         "Chave de API",

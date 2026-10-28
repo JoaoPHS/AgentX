@@ -99,6 +99,12 @@ _PT: dict[str, str] = {
     "The menu is next.": "O menu vem em seguida.",
     "Chat": "Conversa",
     "Scripts": "Scripts",
+    "Hermes Bridge": "Ponte Hermes",
+    "One shot, then the process exits": "Uma vez, e o processo encerra",
+    "Worker": "Operário",
+    "Orchestrator": "Orquestrador",
+    "Task: ": "Tarefa: ",
+    "Say what Hermes should do.": "Diga o que o Hermes deve fazer.",
     "Configuration": "Configuração",
     "Help guide": "Guia de ajuda",
     "Check config": "Verificar config",
@@ -110,7 +116,7 @@ _PT: dict[str, str] = {
         "No menu, esquerda e direita trocam estas páginas. q volta."
     ),
     "List installed scripts": "Listar scripts instalados",
-    "Install 50 included scripts": "Instalar os 50 scripts inclusos",
+    "Install 51 included scripts": "Instalar os 51 scripts inclusos",
     "Included scripts are ready in {directory}. The set has {count} scripts.": (
         "Os scripts inclusos estao prontos em {directory}. O conjunto tem {count} scripts."
     ),
@@ -256,7 +262,7 @@ _PT: dict[str, str] = {
     ),
     "Script not installed.": "Script não instalado.",
     "A file name is only used with a gist.": "Um nome de arquivo só é usado com um gist.",
-    "The 50 included scripts are already installed.": "Os 50 scripts inclusos já estão instalados.",
+    "The 51 included scripts are already installed.": "Os 51 scripts inclusos já estão instalados.",
     "Installed {count} scripts in {directory}.": "Instalados {count} scripts em {directory}.",
     "Installed scripts: none.": "Scripts instalados: nenhum.",
     "Installed scripts:": "Scripts instalados:",
@@ -459,8 +465,8 @@ _PT: dict[str, str] = {
     "Use agentx script new NAME to save a script.": "Use agentx script new NOME para salvar um script.",
     "Installed {names}": "Instalados: {names}",
     "Installed {names} in {directory}": "Instalados: {names} em {directory}",
-    "The 50 included scripts are already in {directory}.": (
-        "Os 50 scripts inclusos já estão em {directory}."
+    "The 51 included scripts are already in {directory}.": (
+        "Os 51 scripts inclusos já estão em {directory}."
     ),
     "Script written to {path}": "Script gravado em {path}",
     "No scripts in {directory}. Create one with: agentx script new NAME.": (

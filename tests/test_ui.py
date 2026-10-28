@@ -1,6 +1,6 @@
 import threading
 
-from agentx.cli import droidmcp_menu, home, interpret, main, pick_saved_script, session_card
+from agentx.cli import droidmcp_menu, hermes_menu, home, interpret, main, pick_saved_script, session_card
 from agentx.config import AppConfig, init_config
 from agentx.llm.router import Session
 from agentx.ui import (
@@ -159,6 +159,7 @@ def test_home_menu_lists_the_sections_and_q_leaves(capsys):
     assert "AgentX" in drawn
     assert "Scripts" in drawn
     assert "DroidMCP" in drawn
+    assert "Hermes Bridge" in drawn
     assert "Configuration" in drawn
     assert "Help guide" in drawn
     assert capsys.readouterr().out == ""
@@ -183,6 +184,24 @@ def test_session_card_hides_the_key():
     assert "MCP: on, tools device_status" in card
     assert "Language: en" in card
     assert "Saved chat: off" in card
+
+
+def test_hermes_menu_runs_one_worker_shot(monkeypatch):
+    from types import SimpleNamespace
+
+    seen: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda _prompt: "add two numbers")
+
+    def launch(script_id, task, scripts, **_kwargs):
+        seen.append(f"{script_id}:{task}")
+        return "sum"
+
+    monkeypatch.setattr("agentx.cli.run_script", launch)
+    runtime = SimpleNamespace(config=AppConfig())
+    keys = iter(["enter", "enter", "q"])
+    hermes_menu(runtime, read_key_fn=lambda: next(keys), write=seen.append)
+    assert "hermes_bridge:worker: add two numbers" in seen
+    assert "sum" in "".join(seen)
 
 
 def test_droidmcp_menu_runs_battery_and_leaves_on_q():

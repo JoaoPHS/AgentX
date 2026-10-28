@@ -63,7 +63,7 @@ Usage:
   agentx script run NAME [task] run one saved script
   agentx script add FILE copy a Python script into the script directory
   agentx script install NAME [--yes] install a community script, or a public gist URL
-  agentx script examples install the 50 included scripts
+  agentx script examples install the 51 included scripts
   agentx voice           speak one task through Termux:API
   agentx bench           run offline latency checks on this machine
 
@@ -107,7 +107,7 @@ Uso:
   agentx script run NOME [tarefa] executa um script salvo
   agentx script add ARQUIVO copia um script Python para a pasta de scripts
   agentx script install NOME [--yes] instala um script da comunidade, ou uma URL de gist público
-  agentx script examples instala os 50 scripts inclusos
+  agentx script examples instala os 51 scripts inclusos
   agentx voice           fala uma tarefa pelo Termux:API
   agentx bench           roda checagens de latência offline nesta máquina
 
@@ -348,6 +348,7 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
             Choice("chat", t("Chat")),
             Choice("voice", t("Speak a task")),
             Choice("scripts", t("Scripts")),
+            Choice("hermes", t("Hermes Bridge")),
             Choice("droidmcp", "DroidMCP"),
             Choice("config", t("Configuration")),
             Choice("help", t("Help guide")),
@@ -371,6 +372,9 @@ def home(runtime: Runtime, *, read_key_fn=None, write=None) -> int:
                 return 0
         elif picked == "scripts":
             scripts_menu(runtime, read_key_fn=read_key_fn, write=write)
+        elif picked == "hermes":
+            if runtime is not None:
+                hermes_menu(runtime, read_key_fn=read_key_fn, write=write)
         elif picked == "droidmcp":
             if runtime is not None:
                 droidmcp_menu(runtime, read_key_fn=read_key_fn, write=write)
@@ -439,7 +443,7 @@ def scripts_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
             Choice("list", t("List installed scripts")),
             Choice("new", t("Create a script")),
             Choice("run", t("Run a saved script")),
-            Choice("examples", t("Install 50 included scripts")),
+            Choice("examples", t("Install 51 included scripts")),
             Choice("install", t("Install a community script")),
             Choice("back", t("Back")),
         ]
@@ -475,6 +479,48 @@ _DROIDMCP_TOOLS = (
     ("get_volume", "Volume"),
     ("list_sensors", "Sensor list"),
 )
+
+
+def hermes_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
+    """Arrow menu for one Hermes shot. The process ends when the reply is printed."""
+    while True:
+        set_language(runtime.config.language)
+        picked = choose(
+            "Hermes",
+            t("One shot, then the process exits"),
+            [
+                Choice("worker", t("Worker")),
+                Choice("orchestrator", t("Orchestrator")),
+                Choice("back", t("Back")),
+            ],
+            read_key_fn=read_key_fn or _bound_read_key,
+            write=write,
+        )
+        if picked in {None, "back"}:
+            return
+        _pause(
+            _run_hermes_from_menu(runtime.config, picked),
+            write=write,
+            read_key_fn=read_key_fn,
+        )
+
+
+def _run_hermes_from_menu(config: AppConfig, mode: str) -> str:
+    try:
+        task = input(t("Task: ")).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+    if not task:
+        return t("Say what Hermes should do.")
+    prefix = "orchestrator" if mode == "orchestrator" else "worker"
+    return run_script(
+        "hermes_bridge",
+        f"{prefix}: {task}",
+        scripts_for_config(config),
+        timeout=config.scripts.timeout_seconds,
+        max_output=config.scripts.max_output_chars,
+    )
 
 
 def droidmcp_menu(runtime: Runtime, *, read_key_fn=None, write=None) -> None:
@@ -746,8 +792,8 @@ def _install_examples_message(config: AppConfig) -> str:
 def _examples_line(installed: list[str], directory: Path, *, menu: bool) -> str:
     if not installed:
         if menu:
-            return t("The 50 included scripts are already installed.")
-        return tr("The 50 included scripts are already in {directory}.", directory=directory)
+            return t("The 51 included scripts are already installed.")
+        return tr("The 51 included scripts are already in {directory}.", directory=directory)
     if len(installed) >= 20:
         return tr(
             "Installed {count} scripts in {directory}.",
