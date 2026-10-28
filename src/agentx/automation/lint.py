@@ -59,6 +59,8 @@ _NET_MODULES = {
     "urllib.parse",
     "aiohttp",
 }
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_SOCKET_SENDS = {"send", "sendall", "sendto", "create_server"}
 _FILE_WRITE = {"write_text", "write_bytes", "open", "replace"}
 _DESTROY = {"unlink", "rmtree", "remove", "removedirs", "rmdir"}
 ALLOWED_PERMISSIONS = frozenset({"process", "network", "files", "home"})
@@ -157,6 +159,8 @@ def _scan_string(value: str, add) -> None:
 
 def _scan_module(name: str, add) -> None:
     root = name.casefold()
+    if root == "socket":
+        return
     if root in _NET_MODULES or root.startswith("urllib."):
         add("warn", f"The script imports {name} and can send network requests.")
     if root in {"subprocess"}:
@@ -178,12 +182,16 @@ def _scan_call(node: ast.Call, add) -> None:
         add("warn", "The script reads the home directory.")
     if short in _DESTROY:
         add("block", "The script can delete files.")
-    if short in _FILE_WRITE:
+    if short == "open" and not _mode_writes(node):
+        pass
+    elif short in _FILE_WRITE:
         for arg in list(node.args) + [kw.value for kw in node.keywords]:
             joined = _joined_path(arg) if not isinstance(arg, ast.Constant) else ""
             text = arg.value if isinstance(arg, ast.Constant) and isinstance(arg.value, str) else joined
             if text and _outside_scope(text):
                 add("warn", "The script writes a file outside the usual script folder.")
+    if _socket_leaves_machine(node):
+        add("warn", "The script imports socket and can send network requests.")
     if short in {"getenv", "environ"} or name.endswith("environ.get"):
         add("warn", "The script reads environment variables.")
 
@@ -219,6 +227,38 @@ def _joined_path(node: ast.AST) -> str:
             return "~"
         if node.args:
             return _joined_path(node.args[0])
+    return ""
+
+
+def _mode_writes(node: ast.Call) -> bool:
+    mode = "r"
+    if len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str):
+        mode = node.args[1].value
+    for keyword in node.keywords:
+        if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
+            if isinstance(keyword.value.value, str):
+                mode = keyword.value.value
+    return any(flag in mode for flag in ("w", "a", "x", "+"))
+
+
+def _socket_leaves_machine(node: ast.Call) -> bool:
+    short = _call_name(node).rsplit(".", 1)[-1]
+    if short == "gethostname":
+        return False
+    if short in {"create_connection", "connect"}:
+        host = _call_host(node)
+        return host not in _LOOPBACK_HOSTS
+    return short in _SOCKET_SENDS
+
+
+def _call_host(node: ast.Call) -> str:
+    if not node.args:
+        return ""
+    target = node.args[0]
+    if isinstance(target, ast.Tuple) and target.elts:
+        target = target.elts[0]
+    if isinstance(target, ast.Constant) and isinstance(target.value, str):
+        return target.value.casefold()
     return ""
 
 

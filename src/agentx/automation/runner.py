@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import signal
@@ -9,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agentx.automation.catalog import ScriptInfo
+from agentx.automation.catalog import ScriptInfo, included_root
 from agentx.automation.lint import is_blocked, lint_script, required_permissions
 from agentx.i18n import current_language, t, tr
 
@@ -60,7 +61,7 @@ def run_script(
         completed = launch(
             command,
             cwd=str(chosen.path.resolve().parent),
-            timeout=timeout,
+            timeout=_job_timeout(chosen, timeout),
         )
     except subprocess.TimeoutExpired:
         return t("The script timed out.")
@@ -87,17 +88,59 @@ def _refuse(chosen: ScriptInfo) -> str | None:
     except OSError:
         return t("The script could not be started.")
     findings = lint_script(text)
-    if is_blocked(findings):
-        return t("This script was blocked.")
     needed = required_permissions(findings)
     declared = set(chosen.permissions)
     missing = needed - declared
+    if is_blocked(findings):
+        return t("This script was blocked.")
     if missing == {"process"} and not declared:
+        return None
+    if missing and _shipped_grants(chosen, missing):
         return None
     if missing:
         names = ", ".join(sorted(missing))
         return tr("The script needs permission: {names}.", names=names)
     return None
+
+
+def _job_timeout(chosen: ScriptInfo, timeout: float) -> float:
+    """A script may declare a longer job than the 30 second menu default."""
+    declared = int(getattr(chosen, "timeout_seconds", 0) or 0)
+    if declared > timeout:
+        return float(declared)
+    return timeout
+
+
+def _shipped_grants(chosen: ScriptInfo, missing: set[str]) -> bool:
+    """An unchanged installed copy may use the permissions declared on the shipped script."""
+    shipped_path = included_root() / f"{chosen.id}.py"
+    if not shipped_path.is_file() or shipped_path.resolve() == chosen.path.resolve():
+        return False
+    try:
+        shipped_text = shipped_path.read_text(encoding="utf-8")
+        user_text = chosen.path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    from agentx.automation.catalog import _describe
+
+    shipped = _describe(chosen.id, shipped_path, shipped_text)
+    if not missing <= set(shipped.permissions):
+        return False
+    return _code_key(user_text) == _code_key(shipped_text)
+
+
+def _code_key(text: str) -> str:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return ""
+    if (
+        tree.body
+        and isinstance(tree.body[0], ast.Expr)
+        and isinstance(getattr(tree.body[0], "value", None), ast.Constant)
+    ):
+        tree.body = tree.body[1:]
+    return ast.dump(tree)
 
 
 def _attached_runner(command: list[str], *, cwd: str, timeout: float):

@@ -23,8 +23,8 @@ class RemoteClient:
     def provider_name(self) -> str:
         return self.session.provider_name(self.config)
 
-    def block_reason(self) -> str | None:
-        name = self.provider_name()
+    def block_reason(self, provider: str | None = None) -> str | None:
+        name = provider or self.provider_name()
         if name == "local":
             return "Local scope does not use a remote key."
         settings = provider_settings(self.config, name)
@@ -37,8 +37,8 @@ class RemoteClient:
             return f"Missing the {label} model id in the config."
         return None
 
-    def output_cap(self, requested: int | None) -> int:
-        settings = provider_settings(self.config, self.provider_name())
+    def output_cap(self, requested: int | None, provider: str | None = None) -> int:
+        settings = provider_settings(self.config, provider or self.provider_name())
         if requested is None:
             return settings.max_tokens
         return min(requested, settings.max_tokens)
@@ -51,13 +51,14 @@ class RemoteClient:
         temperature: float,
         timeout: float,
         on_token=None,
+        provider: str | None = None,
     ) -> str:
-        reason = self.block_reason()
+        name = provider or self.provider_name()
+        reason = self.block_reason(name)
         if reason:
             raise AgentXError(reason)
-        name = self.provider_name()
         settings = provider_settings(self.config, name)
-        cap = self.output_cap(max_tokens)
+        cap = self.output_cap(max_tokens, name)
         if name == "anthropic":
             return self._anthropic(
                 settings,

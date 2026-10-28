@@ -1,5 +1,6 @@
 """Show the AgentX scripts folder.
 
+permissions: home
 keywords: scriptfolder
 patterns: show the scripts folder, mostrar a pasta de scripts
 """

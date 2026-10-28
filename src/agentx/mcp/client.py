@@ -39,10 +39,8 @@ class Transport:
 
 
 class ProcessTransport(Transport):
-    def __init__(self, binary: str, timeout: float) -> None:
-        path = shutil.which(binary)
-        if path is None:
-            raise AgentXError("DroidMCP is not available.")
+    def __init__(self, binary: str, timeout: float, args: tuple[str, ...] = ()) -> None:
+        command = mcp_command(binary, args)
         self.timeout = timeout
         kwargs: dict = {
             "stdin": subprocess.PIPE,
@@ -51,7 +49,7 @@ class ProcessTransport(Transport):
         }
         if os.name == "posix":
             kwargs["start_new_session"] = True
-        self.proc = subprocess.Popen([path], **kwargs)
+        self.proc = subprocess.Popen(command, **kwargs)
 
     def request(self, message: dict) -> dict:
         if self.proc.poll() is not None:
@@ -94,7 +92,11 @@ class ProcessTransport(Transport):
 
 
 class McpSession:
-    """One stdio process for a task. Later calls reuse it. close() ends it."""
+    """One stdio process for a task. Later calls reuse it until close().
+
+    delegate_to_worker, and any session marked ephemeral, is killed after one call.
+    On POSIX that kill uses the process group.
+    """
 
     def __init__(self, settings, governor, *, opener=None) -> None:
         self.settings = settings
@@ -105,7 +107,7 @@ class McpSession:
         self.opens = 0
         self._next_id = 3
 
-    def call(self, name: str) -> str:
+    def call(self, name: str, arguments: dict | None = None) -> str:
         if not self.settings.enabled:
             raise AgentXError("The MCP client is off.")
         if (
@@ -115,23 +117,31 @@ class McpSession:
         ):
             raise AgentXError("That tool is not allowed.")
         _warm_screenshot(self.settings, self.governor, name)
-        arguments = _arguments(name, self.settings.root)
+        if name == "delegate_to_worker":
+            payload = _worker_arguments(arguments)
+        else:
+            payload = _arguments(name, self.settings.root)
+        ephemeral = bool(getattr(self.settings, "ephemeral", False)) or name == "delegate_to_worker"
         _guard(self.governor)
         with self.governor.lock:
             self._ensure()
             transport = self.transport
             if transport is None or name not in self.known:
                 raise AgentXError("That tool is not available.")
-            reply = transport.request(
-                {
-                    "jsonrpc": "2.0",
-                    "id": self._next_id,
-                    "method": "tools/call",
-                    "params": {"name": name, "arguments": arguments},
-                }
-            )
-            self._next_id += 1
-        return _result_text(reply)
+            try:
+                reply = transport.request(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": self._next_id,
+                        "method": "tools/call",
+                        "params": {"name": name, "arguments": payload},
+                    }
+                )
+                self._next_id += 1
+                return _result_text(reply)
+            finally:
+                if ephemeral:
+                    self.close()
 
     def close(self) -> None:
         transport = self.transport
@@ -179,6 +189,30 @@ def _warm_screenshot(settings, governor, name: str) -> None:
         raise AgentXError("The device is warm. The screenshot was not taken.")
 
 
+def mcp_command(binary: str, args: tuple[str, ...] = (), *, which=None) -> list[str]:
+    """Resolve the binary and append config args. The list is not a shell string."""
+    finder = which if which is not None else shutil.which
+    path = finder(binary)
+    if path is None:
+        raise AgentXError("DroidMCP is not available.")
+    rendered: list[str] = []
+    for item in args or ():
+        text = os.path.expanduser(str(item))
+        if not text or "\x00" in text:
+            raise AgentXError("The MCP arguments are invalid.")
+        rendered.append(text)
+    return [path, *rendered]
+
+
+def _worker_arguments(payload: dict | None) -> dict:
+    if not isinstance(payload, dict):
+        raise AgentXError("The worker instruction is missing.")
+    instruction = str(payload.get("worker_instruction") or "").strip()
+    if not instruction or len(instruction) > 2000:
+        raise AgentXError("The worker instruction is missing.")
+    return {"worker_instruction": instruction}
+
+
 def _arguments(name: str, root: str) -> dict:
     folded = name.casefold()
     if any(word in folded for word in ("file", "dir", "list")):
@@ -196,7 +230,11 @@ def _safe_root(root: str) -> str:
 def _open(settings, opener) -> Transport:
     if opener is not None:
         return opener(settings)
-    return ProcessTransport(settings.binary, settings.call_timeout_seconds)
+    return ProcessTransport(
+        settings.binary,
+        settings.call_timeout_seconds,
+        tuple(getattr(settings, "args", ()) or ()),
+    )
 
 
 def _handshake(transport: Transport) -> list[McpTool]:
@@ -263,12 +301,14 @@ def _encode(message: dict) -> bytes:
     return f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
 
 
-def _read_message(stream) -> dict:
+def _read_message(stream, prefix: list[bytes] | None = None) -> dict:
     header = b""
     while b"\r\n\r\n" not in header:
         chunk = stream.read(1)
         if not chunk:
             raise AgentXError("DroidMCP closed the connection.")
+        if prefix is not None and sum(len(part) for part in prefix) < 120:
+            prefix.append(chunk)
         header += chunk
         if len(header) > 8192:
             raise AgentXError("DroidMCP sent a malformed header.")

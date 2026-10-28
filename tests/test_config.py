@@ -179,6 +179,30 @@ def test_provider_max_tokens_default_and_invalid(tmp_path):
         load_config(path)
 
 
+def test_orchestrator_budget_and_mcp_args(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        """
+[orchestrator]
+max_tokens = 600
+
+[mcp]
+binary = "python"
+args = ["-m", "agentx.worker"]
+ephemeral = true
+tools = ["delegate_to_worker"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    assert config.orchestrator.max_tokens == 600
+    assert config.mcp.binary == "python"
+    assert config.mcp.args == ("-m", "agentx.worker")
+    assert config.mcp.ephemeral is True
+    assert config.mcp.tools == ("delegate_to_worker",)
+
+
 def test_saving_a_model_id_keeps_max_tokens(tmp_path):
     from agentx.cli import apply_model_command
     from agentx.llm.router import Session

@@ -23,6 +23,7 @@ from agentx.automation.catalog import (
 from agentx.automation.runner import run_script
 from agentx.config import answer_instruction
 from agentx.context import attach_folder_context, folder_context_for
+from agentx.delegation import DELEGATION_RULES, parse_r1_orchestrator_response
 from agentx.errors import AgentXError
 from agentx.i18n import t, tr
 from agentx.mcp.client import McpSession
@@ -155,10 +156,13 @@ class Orchestrator:
         visible_scripts = select_scripts(message, installed)
         visible_tools = select_tools(message, mcp_tools)
         analysis = _analysis_prompt(visible_scripts, language, visible_tools)
+        if "delegate_to_worker" in mcp_tools and DELEGATION_RULES not in analysis:
+            analysis += "\n" + DELEGATION_RULES
         self.router.status = status
+        self._last_analysis = ""
 
         def analyze(text: str) -> str:
-            return self.router.complete(
+            raw = self.router.complete(
                 "orchestrator",
                 [
                     {"role": "system", "content": analysis},
@@ -174,8 +178,10 @@ class Orchestrator:
                 timeout=self._timeout(),
                 status=status,
             )
+            self._last_analysis = raw
+            return raw
 
-        steps, _called = build_plan(
+        steps, called = build_plan(
             message,
             force_main=force_main,
             scope=scope,
@@ -200,6 +206,22 @@ class Orchestrator:
             mcp_session.close()
             if running and status is not None:
                 status(t("DroidMCP stopped."))
+
+        if (
+            called
+            and self.config.mcp.enabled
+            and "delegate_to_worker" in self.config.mcp.tools
+        ):
+            decision = parse_r1_orchestrator_response(self._last_analysis, emit=status)
+            if decision["action"] == "delegate_to_worker":
+                if status is not None:
+                    status(t("Calling delegate_to_worker."))
+                try:
+                    return mcp_session.call("delegate_to_worker", decision["payload"])
+                except AgentXError as exc:
+                    return str(exc)
+                finally:
+                    release_device()
 
         if not any(step.kind == "mcp" for step in steps):
             release_device()
@@ -671,6 +693,8 @@ def _analysis_prompt(scripts, language: str, mcp_tools) -> str:
             "\nsub mcp TOOL when a listed MCP tool does that part. "
             f"TOOL is one of: {names}."
         )
+        if "delegate_to_worker" in mcp_tools:
+            prompt += "\n" + DELEGATION_RULES
     return prompt
 
 

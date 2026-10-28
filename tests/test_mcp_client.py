@@ -539,3 +539,51 @@ def test_a_sensor_call_stays_up_until_the_chat_moves_on(tmp_path):
     assert notes == ["DroidMCP stopped."]
     link.close()
     assert notes == ["DroidMCP stopped."]
+
+
+def test_delegate_to_worker_is_killed_after_one_call():
+    opened = []
+    session = McpSession(
+        _settings(tools=("delegate_to_worker",), ephemeral=False),
+        Gov(),
+        opener=_opener(
+            opened,
+            [_init(), _listed("delegate_to_worker"), _called("plain answer")],
+        ),
+    )
+    text = session.call(
+        "delegate_to_worker",
+        {"worker_instruction": "Compare the two cache options.", "module": "netscan"},
+    )
+    assert text == "plain answer"
+    assert opened[0].closed is True
+    call = [item for item in opened[0].sent if item.get("method") == "tools/call"][0]
+    assert call["params"]["arguments"] == {
+        "worker_instruction": "Compare the two cache options."
+    }
+
+
+def test_a_missing_worker_instruction_does_not_open_a_process():
+    opened = []
+
+    def opener(_settings):
+        opened.append(1)
+        raise AssertionError("missing instructions must not spawn")
+
+    session = McpSession(_settings(tools=("delegate_to_worker",)), Gov(), opener=opener)
+    with pytest.raises(AgentXError, match="instruction"):
+        session.call("delegate_to_worker", {"module": "netscan", "action": "scan"})
+    assert opened == []
+
+
+def test_mcp_argv_appends_args_without_a_shell():
+    from agentx.mcp.client import mcp_command as mcp_argv
+
+    command = mcp_argv(
+        "python",
+        ("-m", "agentx.worker"),
+        which=lambda _name: "/usr/bin/python",
+    )
+    assert command == ["/usr/bin/python", "-m", "agentx.worker"]
+    with pytest.raises(AgentXError, match="invalid"):
+        mcp_argv("python", ("ok", "bad\x00arg"), which=lambda _name: "/usr/bin/python")

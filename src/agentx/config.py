@@ -73,7 +73,7 @@ max_bytes = 2097152
 timeout_seconds = 20
 
 [orchestrator]
-max_tokens = 80
+max_tokens = 600
 max_delegations = 3
 
 [scripts]
@@ -91,6 +91,8 @@ dir = ""
 [mcp]
 enabled = false
 binary = "droidmcp"
+args = []
+ephemeral = false
 tools = []
 root = ""
 idle_seconds = 120
@@ -152,7 +154,7 @@ class FetchSettings:
 
 @dataclass
 class OrchestratorSettings:
-    max_tokens: int = 80
+    max_tokens: int = 600
     max_delegations: int = 3
 
 
@@ -173,6 +175,8 @@ class ContextSettings:
 class McpSettings:
     enabled: bool = False
     binary: str = "droidmcp"
+    args: tuple[str, ...] = ()
+    ephemeral: bool = False
     tools: tuple[str, ...] = ()
     root: str = ""
     idle_seconds: int = 120
@@ -361,6 +365,8 @@ def _apply(config: AppConfig, raw: dict) -> None:
     mcp = _table(raw, "mcp")
     config.mcp.enabled = _bool(mcp, "enabled", config.mcp.enabled)
     config.mcp.binary = _str(mcp, "binary", config.mcp.binary).strip() or "droidmcp"
+    config.mcp.args = _str_tuple(mcp, "args")
+    config.mcp.ephemeral = _bool(mcp, "ephemeral", config.mcp.ephemeral)
     config.mcp.tools = _str_tuple(mcp, "tools")
     config.mcp.root = _str(mcp, "root", config.mcp.root).strip()
     config.mcp.idle_seconds = _int(mcp, "idle_seconds", config.mcp.idle_seconds)

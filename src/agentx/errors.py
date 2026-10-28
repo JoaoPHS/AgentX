@@ -8,3 +8,7 @@ class AgentXError(Exception):
         if not isinstance(raw, str):
             raw = str(raw)
         return t(raw)
+
+
+class RetryableRemoteError(AgentXError):
+    """The remote provider failed in a way the next configured provider may answer."""

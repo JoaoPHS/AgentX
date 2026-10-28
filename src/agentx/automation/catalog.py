@@ -16,6 +16,7 @@ _KEYWORDS = re.compile(r"^keywords:\s*(.*)$", re.IGNORECASE)
 _PATTERNS = re.compile(r"^patterns:\s*(.*)$", re.IGNORECASE)
 _INTERACTIVE = re.compile(r"^interactive:\s*yes\s*$", re.IGNORECASE)
 _PERMISSIONS = re.compile(r"^permissions:\s*(.*)$", re.IGNORECASE)
+_TIMEOUT = re.compile(r"^timeout_seconds:\s*(\d+)\s*$", re.IGNORECASE)
 _REGEX_MARK = re.compile(r"[()\[\]|+*?\\]")
 _FILLER = frozenset(
     {
@@ -116,6 +117,7 @@ class ScriptInfo:
     patterns: tuple[str, ...] = ()
     interactive: bool = False
     permissions: tuple[str, ...] = ()
+    timeout_seconds: int = 0
 
 
 def is_script_id(value: str) -> bool:
@@ -123,7 +125,7 @@ def is_script_id(value: str) -> bool:
 
 
 def included_root() -> Path:
-    """The 50 scripts shipped with AgentX. The repository scripts folder is the same set."""
+    """The scripts shipped with AgentX. The repository scripts folder is the same set."""
     return Path(__file__).resolve().parent / "included"
 
 
@@ -380,6 +382,7 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
     patterns: list[str] = []
     interactive = False
     permissions: list[str] = []
+    timeout_seconds = 0
     for line in document.splitlines():
         stripped = line.strip()
         found = _KEYWORDS.match(stripped)
@@ -401,6 +404,10 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
         if _INTERACTIVE.match(stripped):
             interactive = True
             continue
+        found_timeout = _TIMEOUT.match(stripped)
+        if found_timeout:
+            timeout_seconds = int(found_timeout.group(1))
+            continue
         if stripped:
             description_lines.append(stripped)
     description = " ".join(description_lines)[:160] or script_id
@@ -416,7 +423,14 @@ def _describe(script_id: str, path: Path, text: str) -> ScriptInfo:
 
     allowed = tuple(name for name in permissions if name in ALLOWED_PERMISSIONS)
     return ScriptInfo(
-        script_id, path, description, tuple(folded), folded_patterns, interactive, allowed
+        script_id,
+        path,
+        description,
+        tuple(folded),
+        folded_patterns,
+        interactive,
+        allowed,
+        timeout_seconds,
     )
 
 

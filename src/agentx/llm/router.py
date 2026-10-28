@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from agentx.config import AppConfig
-from agentx.errors import AgentXError
+from agentx.errors import AgentXError, RetryableRemoteError
+from agentx.orion import ready_providers
 
 ROLES = ("orchestrator", "subagent", "main")
 
@@ -89,14 +90,29 @@ class Router:
         if reason:
             raise AgentXError(reason)
         if self.uses_remote(role):
-            with self.governor.lock:
-                return self.remote.complete(
-                    messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    timeout=timeout,
-                    on_token=on_token,
-                )
+            notify = status if status is not None else getattr(self, "status", None)
+            last: RetryableRemoteError | None = None
+            providers = ready_providers(self.config, self.session)
+            for index, name in enumerate(providers):
+                try:
+                    with self.governor.lock:
+                        return self.remote.complete(
+                            messages,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            timeout=timeout,
+                            on_token=on_token,
+                            provider=name,
+                        )
+                except RetryableRemoteError as exc:
+                    last = exc
+                    if notify is not None and index + 1 < len(providers):
+                        notify(
+                            f"Orion: {name} is busy. Trying {providers[index + 1]}."
+                        )
+            if last is not None:
+                raise last
+            raise AgentXError("The remote model failed.")
         notify = status if status is not None else getattr(self, "status", None)
         waiter = getattr(self.governor, "wait_for_heat", None)
         if callable(waiter):

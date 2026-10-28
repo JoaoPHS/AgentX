@@ -13,7 +13,7 @@ def test_the_included_set_has_fifty_scripts():
     generated = library_sources()
     ids = [script_id for script_id, _text in generated]
     assert len(ids) == len(set(ids))
-    assert len(generated) + 3 == INCLUDED_TOTAL
+    assert len(generated) + 4 == INCLUDED_TOTAL
     for _script_id, text in generated:
         ast.parse(text)
         assert "keywords:" in text

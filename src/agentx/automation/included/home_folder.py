@@ -1,5 +1,6 @@
 """Show the home folder path.
 
+permissions: home
 keywords: homefolder
 patterns: show the home folder, mostrar a pasta home
 """

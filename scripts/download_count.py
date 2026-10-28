@@ -1,5 +1,6 @@
 """Count files in the Termux downloads folder.
 
+permissions: home
 keywords: downloadcount
 patterns: count downloads, contar os downloads
 """

@@ -7,7 +7,7 @@ from collections.abc import Iterable, Iterator
 
 import httpx
 
-from agentx.errors import AgentXError
+from agentx.errors import AgentXError, RetryableRemoteError
 from agentx.i18n import t
 
 TRUNCATION_NOTE = "The reply reached the token limit."
@@ -125,6 +125,8 @@ def raise_for_status(status: int, *, remote: bool, model: str = "") -> None:
         raise AgentXError("The key was rejected.")
     if remote and status == 404:
         raise AgentXError(remote_model_rejected(model))
+    if remote and status in {408, 429, 500, 502, 503, 504}:
+        raise RetryableRemoteError("The remote model failed.")
     raise AgentXError("The remote model failed." if remote else "The local model failed.")
 
 

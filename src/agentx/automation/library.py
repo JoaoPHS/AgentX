@@ -1,8 +1,8 @@
-"""Fifty included phone scripts. Three live next to this package; the rest are generated here."""
+"""Included phone scripts. Three live next to this package; the rest are generated here."""
 
 from __future__ import annotations
 
-INCLUDED_TOTAL = 50
+INCLUDED_TOTAL = 51
 
 _HEADER = '''"""{description}
 
@@ -132,7 +132,7 @@ def _built_specs() -> tuple[tuple[str, str, str, str, str], ...]:
 _PYTHON: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "disk_free",
-        "Show free space on the home disk.",
+        "Show free space on the home disk.\n\npermissions: home",
         "diskfree",
         "show disk free, mostrar disco livre",
         """
@@ -281,7 +281,7 @@ _PYTHON: tuple[tuple[str, str, str, str, str], ...] = (
     ),
     (
         "home_folder",
-        "Show the home folder path.",
+        "Show the home folder path.\n\npermissions: home",
         "homefolder",
         "show the home folder, mostrar a pasta home",
         """
@@ -511,7 +511,7 @@ _PYTHON: tuple[tuple[str, str, str, str, str], ...] = (
     ),
     (
         "script_folder",
-        "Show the AgentX scripts folder.",
+        "Show the AgentX scripts folder.\n\npermissions: home",
         "scriptfolder",
         "show the scripts folder, mostrar a pasta de scripts",
         """
@@ -520,7 +520,7 @@ _PYTHON: tuple[tuple[str, str, str, str, str], ...] = (
     ),
     (
         "download_count",
-        "Count files in the Termux downloads folder.",
+        "Count files in the Termux downloads folder.\n\npermissions: home",
         "downloadcount",
         "count downloads, contar os downloads",
         """

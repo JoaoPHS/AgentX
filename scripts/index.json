@@ -71,6 +71,11 @@
       "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/greeting.py"
     },
     {
+      "name": "hermes_bridge",
+      "description": "Run Hermes once as a worker or as an orchestrator, then exit.",
+      "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/hermes_bridge.py"
+    },
+    {
       "name": "home_folder",
       "description": "Show the home folder path.",
       "url": "https://raw.githubusercontent.com/JoaoPHS/AgentX/main/scripts/home_folder.py"

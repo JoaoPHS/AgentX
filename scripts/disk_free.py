@@ -1,5 +1,6 @@
 """Show free space on the home disk.
 
+permissions: home
 keywords: diskfree
 patterns: show disk free, mostrar disco livre
 """
